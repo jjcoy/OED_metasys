@@ -9,6 +9,7 @@ import { DisableChecksType } from './units';
 // The relates to the JS object Meter.types for the same use in src/server/models/Meter.js.
 // They should be kept in sync.
 export enum MeterType {
+	JOHNSONCONTROLS = 'johnsoncontrols',
 	EGAUGE = 'egauge',
 	MAMAC = 'mamac',
 	METASYS = 'metasys',
