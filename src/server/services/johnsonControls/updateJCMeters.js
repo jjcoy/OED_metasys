@@ -5,11 +5,12 @@
 */
 
 const Meter = require('../../models/Meter.js');
-const { getConnection } = require('../../db.js');
+const { getConnection, dropConnection } = require('../../db.js');
 const { log } = require('../../log.js');
 const { refreshDailyReadings, refreshHourlyReadings } = require('../../models/Reading.js');
-const updateMeters = require('../updateMeters.js');
-const parseJC = require('./parsingRequest.js')
+// Not used while the meters are processed in sequence. See the TODO in updateJCMeters().
+// const updateMeters = require('../updateMeters.js');
+const parseJC = require('./parsingRequest.js');
 
 /**
  * Get data for a meter. File by default, live API if JC_USE_API=true.
@@ -113,7 +114,7 @@ async function updateJCMeters() {
         // Build a date range for the data request (defaults to the last 24 hours)
         const { startDate, endDate } = buildDateRangeRequest();
 
-        // updateMeters discards what the callback returns, so record each meter's result here.
+        // Record each meter's result here since updateMeters would discard what the callback returns.
         // Errors are caught here too since updateMeters would only log them and hide them from results.
         const processAndRecord = async (meter, meterConn) => {
             try {
@@ -130,8 +131,15 @@ async function updateJCMeters() {
             }
         };
 
-        // TODO - Don't make requests in parallel
-        await updateMeters(processAndRecord, metersToUpdate, conn);
+        // TODO - Decide whether to run in parallel again. updateMeters uses Promise.all to do all meters at once.
+        // await updateMeters(processAndRecord, metersToUpdate, conn);
+
+        // TEMP - process the meters one at a time
+        log.info(`${parseJC.jcLogPrefix()} Getting meter data for ${metersToUpdate.length} meter(s) in sequence`);
+        for (const meter of metersToUpdate) {
+            await processAndRecord(meter, conn);
+        }
+        log.info(`${parseJC.jcLogPrefix()} Update finished`);
 
         // Only refresh the aggregated daily and hourly readings if something new was loaded
         if (results.some(r => r.isAllReadingsOk)) {
@@ -160,11 +168,15 @@ async function main() {
         const results = await updateJCMeters();
         if (results.length === 0 || results.some(r => !r.isAllReadingsOk)) {
             log.error(`${parseJC.jcLogPrefix()} Update did not complete successfully: ${JSON.stringify(results)}`);
-            process.exit(1);
+            process.exitCode = 1;
         }
     } catch (error) {
         log.error(`[JC] main() failed: ${error.stack || error.message}`);
-        process.exit(1);
+        process.exitCode = 1;
+    } finally {
+        // Close the DB pool so the process exits now instead of waiting for idle connections to time out.
+        // Only done here since the cron job will share the server's pool.
+        dropConnection();
     }
 }
 

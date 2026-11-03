@@ -203,7 +203,7 @@ async function getJcToken(baseUrl, username, password) {
  * @returns uuid
  */
 async function getObjectUuid(token, baseUrl, fqr) {
-    const uri = `${baseUrl}objectIdentifiers?fqr=${fqr}`;
+    const uri = `${baseUrl}/objectIdentifiers?fqr=${fqr}`;
     // DEBUG
     // log.info(`uri: ${uri}, token: ${token}, authHeader(token): ${JSON.stringify(authHeader(token))}`);
 
