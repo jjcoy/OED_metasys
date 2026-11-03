@@ -49,8 +49,8 @@ async function processMeter(meter, conn, startDate, endDate) {
 
 /**
  * Builds a date range request object for fetching meter data.
- * The last time the meter was enabled should be the default start time.
  * Defaults to the past 24 hours if no arguments are provided.
+ * TODO - Consider using the time of the meter's last reading as the default start time.
  *
  * @param {Date} startDate - Start of the date range (default: 24 hours ago)
  * @param {Date} endDate - End of the date range (default: now)
@@ -80,11 +80,16 @@ function buildDateRangeRequest(
 
 
 /**
- * Processes meter readings from a JSON data file and uploads them to OED database.
- * Handles data validation, reliability checks, and reading transformations.
- * @returns {Promise<void>}
+ * Fetches and loads readings for all enabled Johnson Controls (Metasys) meters, then refreshes
+ * the daily and hourly reading views if at least one meter loaded successfully.
+ * Data comes from the file in JC_FILE, or from the Metasys API when JC_USE_API=true (see getMeterData).
+ * Errors are logged rather than thrown.
+ * @returns {Promise<Array<{ name: string, isAllReadingsOk: boolean, msgTotal: string }>>}
+ *   One result per meter processed. Empty if no meters were found or an error stopped the update.
  */
 async function updateJCMeters() {
+    const results = [];
+
     // Establish a connection to the database before any operations
     const conn = await getConnection();
     log.info('Fetching new Johnson Controls meter data');
@@ -94,7 +99,6 @@ async function updateJCMeters() {
         throw new Error('Could not establish database connection');
     }
 
-    log.info('Attempting to upload readings to JCData meter...');
     try {
         // Retrieve all meters marked as enabled in the database
         const allMeters = await Meter.getEnabled(conn);
@@ -102,57 +106,61 @@ async function updateJCMeters() {
         // Narrow the list down to only Johnson Controls (Metasys) meter types,
         // since this function is specifically responsible for JC data
         const metersToUpdate = allMeters.filter(m => m.type === Meter.type.METASYS);
+        if (metersToUpdate.length === 0) {
+            log.warn(`${parseJC.jcLogPrefix()} No enabled Metasys meters found`);
+        }
 
         // Build a date range for the data request (defaults to the last 24 hours)
         const { startDate, endDate } = buildDateRangeRequest();
 
+        // updateMeters discards what the callback returns, so record each meter's result here.
+        // Errors are caught here too since updateMeters would only log them and hide them from results.
+        const processAndRecord = async (meter, meterConn) => {
+            try {
+                const { isAllReadingsOk, msgTotal } = await processMeter(meter, meterConn, startDate, endDate);
+                results.push({ name: meter.name, isAllReadingsOk, msgTotal });
+                if (isAllReadingsOk) {
+                    log.info(`${parseJC.jcLogPrefix(meter.name)} Successfully uploaded readings`);
+                } else {
+                    log.error(`${parseJC.jcLogPrefix(meter.name)} Failed to upload readings: ${msgTotal}`);
+                }
+            } catch (err) {
+                results.push({ name: meter.name, isAllReadingsOk: false, msgTotal: err.message });
+                log.error(`${parseJC.jcLogPrefix(meter.name)} Error processing meter: ${err.message}`, err);
+            }
+        };
+
         // TODO - Don't make requests in parallel
-        // Iterate over each JC meter and fetch+store its readings for the date range.
-        // JCMeterRequest handles the actual API call to Johnson Controls per meter.
-        await updateMeters(
-            (meter, conn) => processMeter(meter, conn, startDate, endDate),
-            metersToUpdate,
-            conn
-        );
+        await updateMeters(processAndRecord, metersToUpdate, conn);
 
-        // TODO - Update
-        // Refresh the materialized/aggregated daily readings table
-        // so downstream consumers see up-to-date daily totals
-        await refreshDailyReadings(conn);
-
-        // Refresh the materialized/aggregated hourly readings table
-        // so downstream consumers see up-to-date hourly breakdowns
-        await refreshHourlyReadings(conn);
-
+        // Only refresh the aggregated daily and hourly readings if something new was loaded
+        if (results.some(r => r.isAllReadingsOk)) {
+            await refreshDailyReadings(conn);
+            await refreshHourlyReadings(conn);
+        } else {
+            log.warn(`${parseJC.jcLogPrefix()} No meters loaded successfully, skipping reading refresh`);
+        }
     } catch (err) {
-        // Log the full error object alongside the message for stack trace visibility
+        // TODO - Decide whether this should rethrow instead of swallowing the error
         log.error(`Error fetching Johnson Controls meter data: ${err}`, err);
     }
 
-    // Confirmation log — reached whether the try block succeeded or the catch handled an error
+    // Reached whether the try block succeeded or the catch handled an error
     log.info('Completed fetching new Johnson Controls meter data');
+    return results;
 }
 
-// TODO - TEMP
+/**
+ * Runs updateJCMeters() directly, e.g. JC_FILE=<path> node updateJCMeters.js.
+ * Exits with code 1 if no meters were processed or any meter failed to load.
+ * TODO - TEMP: remove once updateJCMeters is run from the cron job.
+ */
 async function main() {
     try {
-        const conn = await getConnection();
-
-        // TODO
-        const meter = await Meter.getByName('JCData', conn);
-        if (!meter) throw new Error('Meter JCData not found');
-
-        const { startDate, endDate } = buildDateRangeRequest();
-        log.info(`${parseJC.jcLogPrefix(meter.name)} Found meter (ID: ${meter.id}), starting import...`);
-
-        const result = await processMeter(meter, conn, startDate, endDate);
-
-        if (result.isAllReadingsOk) {
-            await refreshDailyReadings(conn);
-            await refreshHourlyReadings(conn);
-            log.info(`${parseJC.jcLogPrefix(meter.name)} Successfully uploaded readings`);
-        } else {
-            log.error(`${parseJC.jcLogPrefix(meter.name)} Failed to upload readings: ${result.msgTotal}`);
+        const results = await updateJCMeters();
+        if (results.length === 0 || results.some(r => !r.isAllReadingsOk)) {
+            log.error(`${parseJC.jcLogPrefix()} Update did not complete successfully: ${JSON.stringify(results)}`);
+            process.exit(1);
         }
     } catch (error) {
         log.error(`[JC] main() failed: ${error.stack || error.message}`);

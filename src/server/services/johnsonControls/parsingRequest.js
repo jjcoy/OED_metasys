@@ -125,6 +125,14 @@ async function loadJCReadings(meter, rawData, conn) {
     try {
         const parseResult = parseJCMeterData(rawData, meter);
 
+        // Parse errors mean there is nothing valid to load so report failure instead of loading no readings
+        if (parseResult.errors.length > 0) {
+            return {
+                isAllReadingsOk: false,
+                msgTotal: parseResult.errors.join('; ')
+            };
+        }
+
         if (parseResult.warnings.length > 0) {
             log.warn(
                 `${prefix} Parsing warnings: ${parseResult.warnings.join('; ')}`
