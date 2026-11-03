@@ -99,9 +99,9 @@ async function updateJCMeters() {
         // Retrieve all meters marked as enabled in the database
         const allMeters = await Meter.getEnabled(conn);
 
-        // Narrow the list down to only Johnson Controls meter types,
+        // Narrow the list down to only Johnson Controls (Metasys) meter types,
         // since this function is specifically responsible for JC data
-        const metersToUpdate = allMeters.filter(m => m.type === Meter.type.JOHNSONCONTROLS);
+        const metersToUpdate = allMeters.filter(m => m.type === Meter.type.METASYS);
 
         // Build a date range for the data request (defaults to the last 24 hours)
         const { startDate, endDate } = buildDateRangeRequest();

@@ -129,7 +129,7 @@ async function getOrCreateMeter(meterName, conn) {
         null, // URL
         true, // enabled
         true, // displayable
-        Meter.type.JOHNSONCONTROLS, // type
+        Meter.type.METASYS, // type
         'US/Eastern', // timezone
         undefined, //gps
         undefined, // identifier
