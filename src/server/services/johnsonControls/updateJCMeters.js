@@ -5,7 +5,7 @@
 */
 
 const Meter = require('../../models/Meter.js');
-const { getConnection, dropConnection } = require('../../db.js');
+const { getConnection } = require('../../db.js');
 const { log } = require('../../log.js');
 const { refreshDailyReadings, refreshHourlyReadings } = require('../../models/Reading.js');
 // Not used while the meters are processed in sequence. See the TODO in updateJCMeters().
@@ -156,32 +156,6 @@ async function updateJCMeters() {
     // Reached whether the try block succeeded or the catch handled an error
     log.info('Completed fetching new Johnson Controls meter data');
     return results;
-}
-
-/**
- * Runs updateJCMeters() directly, e.g. JC_FILE=<path> node updateJCMeters.js.
- * Exits with code 1 if no meters were processed or any meter failed to load.
- * TODO - TEMP: remove once updateJCMeters is run from the cron job.
- */
-async function main() {
-    try {
-        const results = await updateJCMeters();
-        if (results.length === 0 || results.some(r => !r.isAllReadingsOk)) {
-            log.error(`${parseJC.jcLogPrefix()} Update did not complete successfully: ${JSON.stringify(results)}`);
-            process.exitCode = 1;
-        }
-    } catch (error) {
-        log.error(`[JC] main() failed: ${error.stack || error.message}`);
-        process.exitCode = 1;
-    } finally {
-        // Close the DB pool so the process exits now instead of waiting for idle connections to time out.
-        // Only done here since the cron job will share the server's pool.
-        dropConnection();
-    }
-}
-
-if (require.main === module) {
-    main().catch(console.error);
 }
 
 module.exports = { updateJCMeters, buildDateRangeRequest, processMeter, getMeterData };

@@ -15,6 +15,10 @@
  *   cleanup restores the database to how it was before the load.
  * npm run testjc -- delete <meterName>
  *   delete removes a meter made by testLoad, along with everything that refers to it.
+ * npm run testjc -- update_via_file [file]
+ *   update_via_file runs updateJCMeters() on every enabled metasys meter in the database, reading the data from
+ *   the file. If no file is given then JC_FILE is used. The exit code is 1 if no meters were processed or any failed.
+ *   TODO - update_via_api to do the same using the Metasys API
  */
 
 const { log, LogLevel } = require('../../log');
@@ -33,6 +37,7 @@ const {
     fetchJCMeterDataFromFile,
     loadJCReadings
 } = require('./parsingRequest');
+const { updateJCMeters } = require('./updateJCMeters');
 const fs = require('fs');
 const moment = require('moment');
 
@@ -262,13 +267,38 @@ async function testLoad(meterName, filePath, cleanup = false) {
             const itemCount = Array.isArray(rawData.items) ? rawData.items.length : 0;
             logMsg(`Loaded ${meter.name}: ${itemCount} items in the file.`);
         } else {
-            logMsg(`Failed to load ${meter.name}: ${result.msgTotal}`);
+            throw new Error(`Failed to load ${meter.name}: ${result.msgTotal}`);
         }
     } finally {
         // if we asked to clean up the db after the test, run cleanUpLoad()
         if (cleanup) {
             await cleanUpLoad(snapshot, conn);
         }
+    }
+}
+
+/**
+ * Run updateJCMeters() the way the cron job will, with the data coming from a file.
+ * Sets the exit code to 1 if no meters were processed or any failed.
+ * @param filePath file to read the data from. JC_FILE is used if not given.
+ */
+async function testUpdateViaFile(filePath) {
+    // determine file to import data from
+    if (filePath) {
+        process.env.JC_FILE = filePath;
+    }
+    if (!process.env.JC_FILE) {
+        throw new Error('A file is needed. Give it as an argument or set JC_FILE');
+    }
+    // getMeterData() reads the file unless this is 'true', so set to false
+    process.env.JC_USE_API = 'false';
+    // now do the test of updating all metasys meters (from the same file)
+    const results = await updateJCMeters();
+    if (results.length === 0 || results.some(r => !r.isAllReadingsOk)) {
+        process.exitCode = 1;
+        logMsg(`Update did not complete successfully: ${JSON.stringify(results)}`);
+    } else {
+        logMsg(`Updated ${results.length} meter(s): ${results.map(r => r.name).join(', ')}`);
     }
 }
 
@@ -318,6 +348,7 @@ async function main() {
         await runCommand(command, first, second, third, credentials);
     } catch (err) {
         logMsg(err);
+        process.exitCode = 1;
     } finally {
         dropConnection();
     }
@@ -351,16 +382,16 @@ async function runCommand(command, first, second, third, credentials) {
         case 'delete':
             await deleteTestMeter(first);
             break;
+        case 'update_via_file':
+            await testUpdateViaFile(first);
+            break;
         default:
-            logMsg('Provide a command: login, uuid, uri, fetch, load, delete');
+            logMsg('Provide a command: login, uuid, uri, fetch, load, delete, update_via_file');
             logMsg('Connection flags: --baseUrl= --username= --password= --fqr=');
     }
 }
 
 main()
-    .then(() => {
-        process.exitCode = 0;
-    })
     .catch(error => {
         logMsg(`\nThat did not work: ${error.message}`);
         process.exitCode = 1;
