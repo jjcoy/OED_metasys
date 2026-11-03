@@ -44,7 +44,7 @@ async function getMeterData(meter, startDate, endDate) {
  */
 async function processMeter(meter, conn, startDate, endDate) {
     const rawData = await getMeterData(meter, startDate, endDate);
-    return parseJC.loadJCReadings(meter, conn, rawData);
+    return parseJC.loadJCReadings(meter, rawData, conn);
 }
 
 /**
