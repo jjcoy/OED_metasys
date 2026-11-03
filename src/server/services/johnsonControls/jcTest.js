@@ -31,7 +31,6 @@ const {
 } = require('./jcApiClient');
 const {
     fetchJCMeterDataFromFile,
-    parseJCMeterData,
     loadJCReadings
 } = require('./parsingRequest');
 const fs = require('fs');
@@ -258,11 +257,12 @@ async function testLoad(meterName, filePath, cleanup = false) {
     try {
         const meter = await getOrCreateMeter(meterName, conn);
         const rawData = await fetchJCMeterDataFromFile(filePath);
-        const parsed = parseJCMeterData(rawData, meter);
         const result = await loadJCReadings(meter, rawData, conn);
-        logMsg(`Loaded ${meter.name}: ${parsed.readings.length} readings in the file.`);
-        if (!result.isAllReadingsOk) {
-            logMsg(result.msgTotal);
+        if (result.isAllReadingsOk) {
+            const itemCount = Array.isArray(rawData.items) ? rawData.items.length : 0;
+            logMsg(`Loaded ${meter.name}: ${itemCount} items in the file.`);
+        } else {
+            logMsg(`Failed to load ${meter.name}: ${result.msgTotal}`);
         }
     } finally {
         // if we asked to clean up the db after the test, run cleanUpLoad()
