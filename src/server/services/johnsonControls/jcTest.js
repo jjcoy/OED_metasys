@@ -194,25 +194,13 @@ async function snapshotMeter(meterName, conn) {
  * @param conn database connection
  */
 async function cleanUpLoad(snapshot, conn) {
-    // meterName is what we (may have) created in getOrCreateMeter()
-    // if it did not exist in the database at the time of the snapshot, meter == readings == null
     const { meterName, meter, readings } = snapshot;
-    const current = await Meter.getByName(meterName, conn).catch(() => null);
-    // if the meter does not exist (was never successfully created in the test)
-    if (!current) {
-        logMsg(`Clean up: meter ${meterName} not found so nothing to remove`);
-    }
-    //  The meter did not exist before the test so remove it and its readings.
-    else if (!meter) {
-        await conn.tx(async t => {
-            await t.none('DELETE FROM readings WHERE meter_id = $1', [current.id]);
-            await t.none('DELETE FROM meters WHERE id = $1', [current.id]);
-        });
-        logMsg(`Clean up: removed meter ${meterName} (id ${current.id}) and its readings`);
-    } 
-    // The meter existed before the test, so restore it to the previous contents
-    else {
-        await conn.none('DELETE FROM readings WHERE meter_id = $1', [current.id]);
+    if (!meter) {
+        // The meter did not exist before the test so remove it and its readings.
+        await deleteTestMeter(meterName, conn);
+    } else {
+        // The meter was there before so put back the readings and the meter values the load changed.
+        await conn.none('DELETE FROM readings WHERE meter_id = $1', [meter.id]);
         await Reading.insertOrUpdateAll(readings, conn);
         await meter.update(conn);
         logMsg(`Clean up: restored meter ${meterName} (id ${meter.id}) and its ${readings.length} readings`);
@@ -224,24 +212,22 @@ async function cleanUpLoad(snapshot, conn) {
  * Use this to remove a test meter after running testLoad without cleanup.
  * Only meters with the test note are deleted so a real meter cannot be removed by mistake.
  * @param meterName meter name
+ * @param conn database connection. A new one is used if not given.
  */
-async function deleteTestMeter(meterName) {
+async function deleteTestMeter(meterName, conn = getConnection()) {
     if (!meterName) {
         throw new Error('A meter name is needed');
     }
-    const conn = getConnection();
     // Find the meter. It may not exist if it was already deleted.
     const meter = await Meter.getByName(meterName, conn).catch(() => null);
     if (!meter) {
         logMsg(`Meter ${meterName} not found so nothing to delete`);
-    } 
-    // Safety check: do not delete a meter that was not made by this test code.
-    else if (!meter.note || !meter.note.startsWith(TEST_METER_NOTE)) {
+    } else if (!meter.note || !meter.note.startsWith(TEST_METER_NOTE)) {
+        // Safety check: refuse to delete a meter that was not made by this test code.
         throw new Error(`Meter ${meterName} (id ${meter.id}) was not made by JC testing so it was not deleted`);
-    } 
-    // Delete in one transaction. Tables that refer to the meter go first because of the foreign keys
-    // and the meter row goes last. Either everything is deleted or nothing is.
-    else {
+    } else {
+        // Delete in one transaction. Tables that refer to the meter go first because of the foreign keys
+        // and the meter row goes last. Either everything is deleted or nothing is.
         await conn.tx(async t => {
             await t.none('DELETE FROM readings WHERE meter_id = $1', [meter.id]);
             await t.none('DELETE FROM baseline WHERE meter_id = $1', [meter.id]);
@@ -250,7 +236,6 @@ async function deleteTestMeter(meterName) {
             await t.none('DELETE FROM meters_immediate_children WHERE parent_id = $1 OR child_id = $1', [meter.id]);
             await t.none('DELETE FROM meters WHERE id = $1', [meter.id]);
         });
-        // finished
         logMsg(`Deleted meter ${meterName} (id ${meter.id}) and everything that refers to it`);
     }
 }
