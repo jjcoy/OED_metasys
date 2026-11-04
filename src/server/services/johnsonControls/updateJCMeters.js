@@ -93,6 +93,9 @@ function buildDateRangeRequest(
  * @returns {Promise<string>}
  */
 async function nextJCMeterStartDate(meter) {
+    // TODO This needs to be rolled to other places such as eGauge.
+    // TODO It would be good to check the last meter reading value on the meter object to see how it compares to
+    // what is found this way. Probably log when differs and need to decide if should do something special.
     // This is the date as a string to return if there are no readings for this meter.
     // It is a very early date and somewhat arbitrary but set to the
     // first Unix date for now in ISO format.
