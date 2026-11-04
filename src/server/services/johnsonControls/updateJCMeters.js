@@ -4,12 +4,17 @@
 * file, You can obtain one at http://mozilla.org/MPL/2.0/.
 */
 
+const moment = require('moment');
 const Meter = require('../../models/Meter.js');
+const Reading = require('../../models/Reading');
 const { getConnection } = require('../../db.js');
 const { log } = require('../../log.js');
 const { refreshDailyReadings, refreshHourlyReadings } = require('../../models/Reading.js');
 const updateMeters = require('../updateMeters.js');
+const { meterTimezone } = require('../meterTimezone');
 const parseJC = require('./parsingRequest.js')
+
+// TODO Files are using space indenting and that needs to be fixed.
 
 /**
  * Get data for a meter. File by default, live API if JC_USE_API=true.
@@ -78,6 +83,46 @@ function buildDateRangeRequest(
     };
 }
 
+// TODO should this take a conn? Maybe yes if calling function has it.
+/**
+ * For the provided meter, it returns the date as an ISO string to use for the next Metasys request
+ * for that meter. The value is the latest reading endTimestamp for that meter.
+ * If there is no readings for that meter then it will return a very early date
+ * to indicate all Metasys readings should be acquired for that meter.
+ * @param {Meter) meter The meter object for the meter desired.
+ * @returns {Promise<string>}
+ */
+async function nextJCMeterStartDate(meter) {
+    // This is the date as a string to return if there are no readings for this meter.
+    // It is a very early date and somewhat arbitrary but set to the
+    // first Unix date for now in ISO format.
+    const DEFAULT_EARLY_DATE = '1970-01-01T00:00:00Z';
+    // Establish a connection to the database before any operations
+    const conn = await getConnection();
+    // Get the latest end timestamp for this meter.
+    let returnDate = await Reading.getLastEndtimeByMeterId(meter.id, conn);
+    if (returnDate === null) {
+        // The meter has no readings so use the default, early date.
+        returnDate = DEFAULT_EARLY_DATE;
+    } else {
+        // TODO Verify that this is what gives correct value, esp. since Metasys is end only.
+        // The next reading has a start time that is the same as the last reading's end time
+        // so use the last endtime to start the next request.
+        // OED returns readings in UTC even though they are in the meter time zone reference
+        // if that is used as is done for Metasys. Thus, must shift the time to UTC for the
+        // next date/time request. Thus, make this in the meter time zone and then shift to UTC.
+        // First determine the best guess of the meter time zone.
+        const meterZone = await meterTimezone(meter);
+        // Next change the date/time to be in the meter time zone without changing the date/time.
+        // This keeps the time the same but applies the time zone.
+        const dateMeterTz = moment(returnDate).tz(meterZone, true);
+        // Now put the time in UTC.
+        const dateUtc = dateMeterTz.utc();
+        // Want as a canonical string format for date/time for Metasys which is ISO.
+        returnDate = dateUtc.toISOString();
+    }
+    return returnDate;
+}
 
 /**
  * Processes meter readings from a JSON data file and uploads them to OED database.
@@ -164,4 +209,4 @@ if (require.main === module) {
     main().catch(console.error);
 }
 
-module.exports = { updateJCMeters, buildDateRangeRequest, processMeter, getMeterData };
+module.exports = { nextJCMeterStartDate, updateJCMeters, buildDateRangeRequest, processMeter, getMeterData };
