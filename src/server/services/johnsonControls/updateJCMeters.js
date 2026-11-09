@@ -11,79 +11,12 @@ const { refreshDailyReadings, refreshHourlyReadings } = require('../../models/Re
 // Not used while the meters are processed in sequence. See the TODO in updateJCMeters().
 // const updateMeters = require('../updateMeters.js');
 const parseJC = require('./parsingRequest.js');
-
-/**
- * Get data for a meter. File by default, live API if JC_USE_API=true.
- * @param {Object} meter
- * @param {string} startDate - ISO 8601
- * @param {string} endDate - ISO 8601
- * @returns {Promise<Object>} JC API JSON
- */
-async function getMeterData(meter, startDate, endDate) {
-    if (process.env.JC_USE_API === 'true') {
-        const jcApi = require('./jcApiClient.js');
-        log.info(`${parseJC.jcLogPrefix(meter.name)} JC_USE_API=true: fetching from the Metasys API`);
-        return jcApi.fetchJCMeterDataFromURI(startDate, endDate);
-    }
-
-    const filePath = process.env.JC_FILE;
-    if (!filePath) {
-        throw new Error('JC_FILE is not set');
-    }
-
-    log.info(`${parseJC.jcLogPrefix(meter.name)} Reading from file: ${filePath}`);
-    return parseJC.fetchJCMeterDataFromFile(filePath);
-}
-
-/**
- * Get data, then parse and load it.
- * @param {Object} meter
- * @param {Object} conn
- * @param {string} startDate
- * @param {string} endDate
- * @returns {Promise<{ isAllReadingsOk: boolean, msgTotal: string }>}
- */
-async function processMeter(meter, conn, startDate, endDate) {
-    const rawData = await getMeterData(meter, startDate, endDate);
-    return parseJC.loadJCReadings(meter, rawData, conn);
-}
-
-/**
- * Builds a date range request object for fetching meter data.
- * Defaults to the past 24 hours if no arguments are provided.
- * TODO - Consider using the time of the meter's last reading as the default start time.
- *
- * @param {Date} startDate - Start of the date range (default: 24 hours ago)
- * @param {Date} endDate - End of the date range (default: now)
- * @returns {{ startDate: string, endDate: string }} ISO 8601 formatted date strings
- *
- * @example
- * // Default usage — last 24 hours
- * buildDateRangeRequest();
- * // => { startDate: '2024-01-14T10:00:00.000Z', endDate: '2024-01-15T10:00:00.000Z' }
- *
- * @example
- * // Custom range
- * buildDateRangeRequest(new Date('2024-01-01'), new Date('2024-01-07'));
- * // => { startDate: '2024-01-01T00:00:00.000Z', endDate: '2024-01-07T00:00:00.000Z' }
- */
-function buildDateRangeRequest(
-    startDate = new Date(Date.now() - 24 * 60 * 60 * 1000), // 24 hrs ago: 24h * 60m * 60s * 1000ms
-    endDate = new Date()                                      // Current timestamp
-) {
-    // Convert both Date objects to ISO 8601 strings (e.g. "2024-01-15T10:30:00.000Z")
-    // ISO 8601 is used to ensure a consistent, timezone-agnostic format for API requests
-    return {
-        startDate: startDate.toISOString(),
-        endDate: endDate.toISOString()
-    };
-}
-
+const { readJCData, buildDateRangeRequest } = require('./readJCData.js');
 
 /**
  * Fetches and loads readings for all enabled Johnson Controls (Metasys) meters, then refreshes
  * the daily and hourly reading views if at least one meter loaded successfully.
- * Data comes from the file in JC_FILE, or from the Metasys API when JC_USE_API=true (see getMeterData).
+ * Data comes from the file in JC_FILE, or from the Metasys API when JC_USE_API=true (see getMeterData in readJCData.js).
  * Errors are logged rather than thrown.
  * @returns {Promise<Array<{ name: string, isAllReadingsOk: boolean, msgTotal: string }>>}
  *   One result per meter processed. Empty if no meters were found or an error stopped the update.
@@ -112,32 +45,23 @@ async function updateJCMeters() {
         }
 
         // Build a date range for the data request (defaults to the last 24 hours)
-        const { startDate, endDate } = buildDateRangeRequest();
+        const dateRange = buildDateRangeRequest();
 
-        // Record each meter's result here since updateMeters would discard what the callback returns.
-        // Errors are caught here too since updateMeters would only log them and hide them from results.
-        const processAndRecord = async (meter, meterConn) => {
-            try {
-                const { isAllReadingsOk, msgTotal } = await processMeter(meter, meterConn, startDate, endDate);
-                results.push({ name: meter.name, isAllReadingsOk, msgTotal });
-                if (isAllReadingsOk) {
-                    log.info(`${parseJC.jcLogPrefix(meter.name)} Successfully uploaded readings`);
-                } else {
-                    log.error(`${parseJC.jcLogPrefix(meter.name)} Failed to upload readings: ${msgTotal}`);
-                }
-            } catch (err) {
-                results.push({ name: meter.name, isAllReadingsOk: false, msgTotal: err.message });
-                log.error(`${parseJC.jcLogPrefix(meter.name)} Error processing meter: ${err.message}`, err);
-            }
+        // Records each meter's outcome, saving errors since
+        // updateMeters would discard what the reader returns. readJCData catches its own
+        // errors, so updateMeters would never see them and they must be recorded here.
+        const reader = async (meter, meterConn) => {
+            results.push(await readJCData(meter, meterConn, dateRange));
         };
 
-        // TODO - Decide whether to run in parallel again. updateMeters uses Promise.all to do all meters at once.
-        // await updateMeters(processAndRecord, metersToUpdate, conn);
+        // TODO - After further testing and approval by OED, run in parallel again. 
+        // updateMeters uses Promise.all to do all meters at once.
+        // await updateMeters(reader, metersToUpdate, conn);
 
         // TEMP - process the meters one at a time
         log.info(`${parseJC.jcLogPrefix()} Getting meter data for ${metersToUpdate.length} meter(s) in sequence`);
         for (const meter of metersToUpdate) {
-            await processAndRecord(meter, conn);
+            await reader(meter, conn);
         }
         log.info(`${parseJC.jcLogPrefix()} Update finished`);
 
@@ -158,4 +82,4 @@ async function updateJCMeters() {
     return results;
 }
 
-module.exports = { updateJCMeters, buildDateRangeRequest, processMeter, getMeterData };
+module.exports = { updateJCMeters };
