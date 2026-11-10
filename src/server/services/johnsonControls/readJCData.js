@@ -8,6 +8,46 @@ const { log } = require('../../log.js');
 const parseJC = require('./parsingRequest.js');
 
 /**
+ * Get the Metasys connection information from a meter's url in the database:
+ *   <host>/api/v3?username=<username>&password=<password>&fqr=<fqr>
+ * The url in the DB should not include https:// since we add it here.
+ * The path (/api/v3) is kept as the base url the API client adds to.
+ * @param {Object} meter
+ * @returns {{ baseUrl: string, username: string, password: string, fqr: string }}
+ * @throws {Error} if the url is missing or does not have a username, password and fqr. The message never includes
+ *   the url because it holds the password.
+ */
+function getCredentialsFromMeter(meter) {
+    // make sure there is a url stored for this meter before we get too far.
+    if (!meter.url) {
+        throw new Error(`Meter ${meter.name} has no url.`);
+    }
+    // build the full url
+    let url;
+    try {
+        // The url should be stored as eGauge meters are, so https:// is added here.
+        url = new URL(`https://${meter.url}`);
+    } catch (err) {
+        throw new Error(`The url for meter ${meter.name} is not a valid url`);
+    }
+    // build credentials needed
+    const credentials = {
+        // No trailing slash since the API client adds /login, /objects, etc.
+        baseUrl: `${url.origin}${url.pathname}`.replace(/\/+$/, ''),
+        username: url.searchParams.get('username'),
+        password: url.searchParams.get('password'),
+        fqr: url.searchParams.get('fqr')
+    };
+    // check for missing parts needed to build a valid url
+    const missing = ['username', 'password', 'fqr'].filter(key => !credentials[key]);
+    if (missing.length > 0) {
+        throw new Error(`The url for meter ${meter.name} is missing: ${missing.join(', ')}`);
+    }
+    // return credentials retrieved from the database's meter entry
+    return credentials;
+}
+
+/**
  * Get data for a meter. File by default, live API if JC_USE_API=true.
  * @param {Object} meter
  * @param {string} startDate - ISO 8601
@@ -19,7 +59,8 @@ async function getMeterData(meter, startDate, endDate) {
     if (process.env.JC_USE_API === 'true') {
         const jcApi = require('./jcApiClient.js');
         log.info(`${parseJC.jcLogPrefix(meter.name)} JC_USE_API=true: fetching from the Metasys API`);
-        return jcApi.fetchJCMeterDataFromURI(startDate, endDate);
+        // Each meter has its own connection information so each one asks its own server for its own fqr.
+        return jcApi.fetchJcMeterData(startDate, endDate, getCredentialsFromMeter(meter));
     }
     // if testing, read data from a file that is set as JC_FILE when jcTests.js is run
     else {
