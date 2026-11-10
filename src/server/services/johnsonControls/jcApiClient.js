@@ -14,7 +14,11 @@ const { log } = require('../../log');
  * Configuration settings for the Metasys API connection
  * TODO These are temporary starting values to be changed when doing tests against a real metasys server
  * They will be removed and configs will be instead taken from user settable values in the dashboard
- * Real config URL in the dashboard will look something like this:
+ * TODO - Confirm the url format against a real Metasys server and with OED. 
+ * The example below ends in /config, but
+ * this file adds /login, /objects, etc. to baseUrl. readJCData.js currently reads
+ * a meter's url as <host>/api/v3?username=...&password=...&fqr=... so /config is likely a typo in
+ * this comment.. shoule it be removed?
  * https://metasys.example.com/api/v3/config?
  * username=admin
  * &password=1234
@@ -104,6 +108,10 @@ const agent = new https.Agent({ rejectUnauthorized: false, keepAlive: true });
 /**
  * The token cache to reuse the token before it expires
  * Object.seal prevents any of the properties of the object from changing while the values can change
+ * TODO - This holds a single token for the whole process. It works when every JC meter uses the same Metasys
+ * server and login. If meters use different servers or usernames (each meter's url has its own connection
+ * information), a token from one server could be reused for another. Key the cache by baseUrl and username
+ * (for example a Map) and check/store the token in getJcToken() using that key.
  */
 const tokenCache = Object.seal({ token: undefined, expiresAt: 0 });
 
@@ -114,7 +122,7 @@ const tokenCache = Object.seal({ token: undefined, expiresAt: 0 });
  */
 function parseExpires(expires) {
     if (!expires) {
-        return logAndError('No expire value was provied to parse');
+        return logAndError('No expire value was provided to parse');
     }
 
     const parsed = moment(expires, moment.ISO_8601, true);
@@ -138,7 +146,7 @@ function authHeader(token) {
 }
 
 /**
- * Make a login requst to Metasys
+ * Make a login request to Metasys
  * @param baseUrl metasys baseurl
  * @param username username
  * @param password password
@@ -203,7 +211,7 @@ async function getJcToken(baseUrl, username, password) {
  * @returns uuid
  */
 async function getObjectUuid(token, baseUrl, fqr) {
-    const uri = `${baseUrl}objectIdentifiers?fqr=${fqr}`;
+    const uri = `${baseUrl}/objectIdentifiers?fqr=${fqr}`;
     // DEBUG
     // log.info(`uri: ${uri}, token: ${token}, authHeader(token): ${JSON.stringify(authHeader(token))}`);
 

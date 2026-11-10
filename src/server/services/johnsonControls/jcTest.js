@@ -11,13 +11,21 @@
  * npm run testjc -- uuid   --baseUrl= --username= --password= --fqr=
  * npm run testjc -- uri <start> <end> --baseUrl=
  * npm run testjc -- fetch <start> <end> <outFile> --baseUrl= --username= --password= --fqr=
- * npm run testjc -- load  <meterName> <file>
+ * npm run testjc -- load  <meterName> <file> [cleanup]
+ *   cleanup restores the database to how it was before the load.
+ * npm run testjc -- delete <meterName>
+ *   delete removes a meter made by testLoad, along with everything that refers to it.
+ * npm run testjc -- update_via_file [file]
+ *   update_via_file runs updateJCMeters() on every enabled metasys meter in the database, reading the data from
+ *   the file. If no file is given then JC_FILE is used. The exit code is 1 if no meters were processed or any failed.
+ *   TODO - update_via_api to do the same using the Metasys API
  */
 
 const { log, LogLevel } = require('../../log');
 const { getConnection, dropConnection } = require('../../db');
 const Meter = require('../../models/Meter');
 const Unit = require('../../models/Unit');
+const Reading = require('../../models/Reading');
 const {
     jcLogin,
     getObjectUuid,
@@ -27,11 +35,14 @@ const {
 } = require('./jcApiClient');
 const {
     fetchJCMeterDataFromFile,
-    parseJCMeterData,
     loadJCReadings
 } = require('./parsingRequest');
+const { updateJCMeters } = require('./updateJCMeters');
 const fs = require('fs');
 const moment = require('moment');
+
+// Start of the note put on meters made by this file. deleteTestMeter uses it to only delete test meters.
+const TEST_METER_NOTE = 'created via JC TESTING on ';
 
 /**
  * @param message log message
@@ -129,11 +140,11 @@ async function getOrCreateMeter(meterName, conn) {
         null, // URL
         true, // enabled
         true, // displayable
-        Meter.type.JOHNSONCONTROLS, // type
+        Meter.type.METASYS, // type
         'US/Eastern', // timezone
         undefined, //gps
         undefined, // identifier
-        'created via JC TESTING on ' + moment().format(), // note
+        TEST_METER_NOTE + moment().format(), // note
         undefined, //area
         true, // cumulative
         true, //cumulativeReset
@@ -166,22 +177,128 @@ async function getOrCreateMeter(meterName, conn) {
 }
 
 /**
+ * Record what the database holds for a meter so cleanUpLoad can put it back.
+ * Must be taken before getOrCreateMeter and before any readings are loaded.
+ * Note the snapshot of the readings is held in memory so it would be slow for a meter with many readings.
+ * @param meterName meter name
+ * @param conn database connection
+ * @returns snapshot to give to cleanUpLoad. meter and readings are null if the meter did not exist.
+ */
+async function snapshotMeter(meterName, conn) {
+    const meter = await Meter.getByName(meterName, conn).catch(() => null);
+    const readings = meter ? await Reading.getAllByMeterID(meter.id, conn) : null;
+    return { meterName, meter, readings };
+}
+
+/**
+ * Undo what testLoad did so the database is as it was before the test.
+ * If the meter did not exist then its readings and the meter are deleted.
+ * If the meter already existed then its readings and meter row are put back to the snapshot.
+ * @param snapshot value from snapshotMeter taken before the load
+ * @param conn database connection
+ */
+async function cleanUpLoad(snapshot, conn) {
+    const { meterName, meter, readings } = snapshot;
+    if (!meter) {
+        // The meter did not exist before the test so remove it and its readings.
+        await deleteTestMeter(meterName, conn);
+    } else {
+        // The meter was there before so put back the readings and the meter values the load changed.
+        await conn.none('DELETE FROM readings WHERE meter_id = $1', [meter.id]);
+        await Reading.insertOrUpdateAll(readings, conn);
+        await meter.update(conn);
+        logMsg(`Clean up: restored meter ${meterName} (id ${meter.id}) and its ${readings.length} readings`);
+    }
+}
+
+/**
+ * Completely delete a meter made by getOrCreateMeter, including its readings and anything else that refers to it.
+ * Use this to remove a test meter after running testLoad without cleanup.
+ * Only meters with the test note are deleted so a real meter cannot be removed by mistake.
+ * @param meterName meter name
+ * @param conn database connection. A new one is used if not given.
+ */
+async function deleteTestMeter(meterName, conn = getConnection()) {
+    if (!meterName) {
+        throw new Error('A meter name is needed');
+    }
+    // Find the meter. It may not exist if it was already deleted.
+    const meter = await Meter.getByName(meterName, conn).catch(() => null);
+    if (!meter) {
+        logMsg(`Meter ${meterName} not found so nothing to delete`);
+    } else if (!meter.note || !meter.note.startsWith(TEST_METER_NOTE)) {
+        // Safety check: refuse to delete a meter that was not made by this test code.
+        throw new Error(`Meter ${meterName} (id ${meter.id}) was not made by JC testing so it was not deleted`);
+    } else {
+        // Delete in one transaction. Tables that refer to the meter go first because of the foreign keys
+        // and the meter row goes last. Either everything is deleted or nothing is.
+        await conn.tx(async t => {
+            await t.none('DELETE FROM readings WHERE meter_id = $1', [meter.id]);
+            await t.none('DELETE FROM baseline WHERE meter_id = $1', [meter.id]);
+            // These two are for if the test meter was added to a group or meter hierarchy while viewing it in the app.
+            await t.none('DELETE FROM groups_immediate_meters WHERE meter_id = $1', [meter.id]);
+            await t.none('DELETE FROM meters_immediate_children WHERE parent_id = $1 OR child_id = $1', [meter.id]);
+            await t.none('DELETE FROM meters WHERE id = $1', [meter.id]);
+        });
+        logMsg(`Deleted meter ${meterName} (id ${meter.id}) and everything that refers to it`);
+    }
+}
+
+/**
  * Parse a saved file into a meter, making the meter if needed.
  * @param meterName meter name
  * @param filePath file to load
+ * @param cleanup if true then the database is put back as it was after the load
  */
-async function testLoad(meterName, filePath) {
+async function testLoad(meterName, filePath, cleanup = false) {
     if (!filePath) {
         throw new Error('A file to load is needed');
     }
+    // in case the meter exists, save a snapshot in memory, so we can restore it,
+    // if we are running with the cleanup option set to true
     const conn = getConnection();
-    const meter = await getOrCreateMeter(meterName, conn);
-    const rawData = await fetchJCMeterDataFromFile(filePath);
-    const parsed = parseJCMeterData(rawData, meter);
-    const result = await loadJCReadings(meter, rawData, conn);
-    logMsg(`Loaded ${meter.name}: ${parsed.readings.length} readings in the file.`);
-    if (!result.isAllReadingsOk) {
-        logMsg(result.msgTotal);
+    const snapshot = cleanup ? await snapshotMeter(meterName, conn) : null;
+    // run the test to create the meter, open test file, parse it, load it, log result
+    try {
+        const meter = await getOrCreateMeter(meterName, conn);
+        const rawData = await fetchJCMeterDataFromFile(filePath);
+        const result = await loadJCReadings(meter, rawData, conn);
+        if (result.isAllReadingsOk) {
+            const itemCount = Array.isArray(rawData.items) ? rawData.items.length : 0;
+            logMsg(`Loaded ${meter.name}: ${itemCount} items in the file.`);
+        } else {
+            throw new Error(`Failed to load ${meter.name}: ${result.msgTotal}`);
+        }
+    } finally {
+        // if we asked to clean up the db after the test, run cleanUpLoad()
+        if (cleanup) {
+            await cleanUpLoad(snapshot, conn);
+        }
+    }
+}
+
+/**
+ * Run updateJCMeters() the way the cron job will, with the data coming from a file.
+ * Sets the exit code to 1 if no meters were processed or any failed.
+ * @param filePath file to read the data from. JC_FILE is used if not given.
+ */
+async function testUpdateViaFile(filePath) {
+    // determine file to import data from
+    if (filePath) {
+        process.env.JC_FILE = filePath;
+    }
+    if (!process.env.JC_FILE) {
+        throw new Error('A file is needed. Give it as an argument or set JC_FILE');
+    }
+    // getMeterData() reads the file unless this is 'true', so set to false
+    process.env.JC_USE_API = 'false';
+    // now do the test of updating all metasys meters (from the same file)
+    const results = await updateJCMeters();
+    if (results.length === 0 || results.some(r => !r.isAllReadingsOk)) {
+        process.exitCode = 1;
+        logMsg(`Update did not complete successfully: ${JSON.stringify(results)}`);
+    } else {
+        logMsg(`Updated ${results.length} meter(s): ${results.map(r => r.name).join(', ')}`);
     }
 }
 
@@ -231,6 +348,7 @@ async function main() {
         await runCommand(command, first, second, third, credentials);
     } catch (err) {
         logMsg(err);
+        process.exitCode = 1;
     } finally {
         dropConnection();
     }
@@ -259,18 +377,21 @@ async function runCommand(command, first, second, third, credentials) {
             await testFetch(first, second, third, credentials);
             break;
         case 'load':
-            await testLoad(first, second);
+            await testLoad(first, second, third === 'cleanup');
+            break;
+        case 'delete':
+            await deleteTestMeter(first);
+            break;
+        case 'update_via_file':
+            await testUpdateViaFile(first);
             break;
         default:
-            logMsg('Provide a command: login, uuid, uri, fetch, load');
+            logMsg('Provide a command: login, uuid, uri, fetch, load, delete, update_via_file');
             logMsg('Connection flags: --baseUrl= --username= --password= --fqr=');
     }
 }
 
 main()
-    .then(() => {
-        process.exitCode = 0;
-    })
     .catch(error => {
         logMsg(`\nThat did not work: ${error.message}`);
         process.exitCode = 1;
