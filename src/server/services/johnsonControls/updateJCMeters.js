@@ -108,9 +108,16 @@ async function nextJCMeterStartDate(meter) {
         // The meter has no readings so use the default, early date.
         returnDate = DEFAULT_EARLY_DATE;
     } else {
-        // TODO Verify that this is what gives correct value, esp. since Metasys is end only.
-        // The next reading has a start time that is the same as the last reading's end time
-        // so use the last endtime to start the next request.
+        // The next reading has a start time that is the same as the last reading's end time.
+        // Since don't want to get the last reading from the previous request again, want to
+        // shift the return data forward. Testing of Metasys found that as long as it is later
+        // then it works fine. To be general and safe, the start time is 0.01 seconds later.
+        // This seems very safe since the frequency of getting data will never be that small.
+        // Note Metasys is end time so that is why OED wants the start to be after the last
+        // readings end time so it is not acquired.
+        // Put the returnData into a moment object and shift by 0.01 seconds.
+        // TODO See if needs to be generalized when used with other systems.
+        let returnDateMoment = moment(returnDate).add(0.01, 'seconds');
         // OED returns readings in UTC even though they are in the meter time zone reference
         // if that is used as is done for Metasys. Thus, must shift the time to UTC for the
         // next date/time request. Thus, make this in the meter time zone and then shift to UTC.
@@ -118,7 +125,7 @@ async function nextJCMeterStartDate(meter) {
         const meterZone = await meterTimezone(meter);
         // Next change the date/time to be in the meter time zone without changing the date/time.
         // This keeps the time the same but applies the time zone.
-        const dateMeterTz = moment(returnDate).tz(meterZone, true);
+        const dateMeterTz = returnDateMoment.tz(meterZone, true);
         // Now put the time in UTC.
         const dateUtc = dateMeterTz.utc();
         // Want as a canonical string format for date/time for Metasys which is ISO.
