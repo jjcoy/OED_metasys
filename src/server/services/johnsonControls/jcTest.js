@@ -26,7 +26,7 @@ const {
     jcLogin,
     getObjectUuid,
     authHeader,
-    buildSampleUri,
+    buildMetasysUri,
     fetchJcMeterData
 } = require('./jcApiClient');
 const {
@@ -35,6 +35,7 @@ const {
 } = require('./parsingRequest');
 const { updateJCMeters } = require('./updateJCMeters');
 const fs = require('fs');
+const moment = require('moment');
 
 /**
  * @param message log message
@@ -76,7 +77,7 @@ async function testUri(startTime, endTime, credentials) {
 
     const token = '<TOKEN>';
     const uuid = '<UUID>';
-    logMsg('GET: \n' + buildSampleUri(credentials.baseUrl, uuid, startTime, endTime, 1));
+    logMsg('GET: \n' + buildMetasysUri(credentials.baseUrl, uuid, startTime, endTime, 1));
     logMsg('\nHEADER: \n' + JSON.stringify(authHeader(token)));
 }
 

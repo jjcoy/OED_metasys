@@ -236,7 +236,7 @@ async function getObjectUuid(token, baseUrl, fqr) {
  * @param page page number
  * @returns error or sample url
  */
-function buildSampleUri(baseUrl, uuid, startTime, endTime, page) {
+function buildMetasysUri(baseUrl, uuid, startTime, endTime, page) {
     if (JC_CONFIG.query.pageSize > JC_CONFIG.maxPageSize) {
         return logAndError(`JC page size exceeded max page size. Size: ${JC_CONFIG.query.pageSize}`);
     }
@@ -273,7 +273,7 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
     const token = await getJcToken(baseUrl, username, password);
     const uuid = await getObjectUuid(token, baseUrl, fqr);
 
-    let uri = buildSampleUri(baseUrl, uuid, startTime, endTime, 1);
+    let uri = buildMetasysUri(baseUrl, uuid, startTime, endTime, 1);
     let page = 1;
     let lastBody = null;
     const allItems = [];
@@ -325,6 +325,6 @@ module.exports = {
     jcLogin,
     authHeader,
     getObjectUuid,
-    buildSampleUri,
+    buildMetasysUri,
     fetchJcMeterData
 };
