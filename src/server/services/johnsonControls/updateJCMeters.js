@@ -25,7 +25,7 @@ async function updateJCMeters() {
     const results = [];
 
     // Establish a connection to the database before any operations
-    const conn = await getConnection();
+    const conn = getConnection();
     log.info('Fetching new Johnson Controls meter data');
 
     // Guard clause: abort early if no DB connection could be made
@@ -73,7 +73,6 @@ async function updateJCMeters() {
             log.warn(`${parseJC.jcLogPrefix()} No meters loaded successfully, skipping reading refresh`);
         }
     } catch (err) {
-        // TODO - Decide whether this should rethrow instead of swallowing the error
         log.error(`Error fetching Johnson Controls meter data: ${err}`, err);
     }
 
@@ -83,3 +82,12 @@ async function updateJCMeters() {
 }
 
 module.exports = { updateJCMeters };
+
+// Run the update when this file is run directly (e.g., npm run updateJCMeters or cron),
+// but do not run it when the file is imported so the function can be used elsewhere (jcTest.jc).
+if (require.main === module) {
+    updateJCMeters()
+        .catch(err => {
+            log.error(`Johnson Controls update failed: ${err}`, err);
+        });
+}
