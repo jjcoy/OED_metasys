@@ -14,12 +14,8 @@ const { log } = require('../../log');
  * Configuration settings for the Metasys API connection
  * TODO These are temporary starting values to be changed when doing tests against a real metasys server
  * They will be removed and configs will be instead taken from user settable values in the dashboard
- * TODO - Confirm the url format against a real Metasys server and with OED. 
- * The example below ends in /config, but
- * this file adds /login, /objects, etc. to baseUrl. readJCData.js currently reads
- * a meter's url as <host>/api/v3?username=...&password=...&fqr=... so /config is likely a typo in
- * this comment.. shoule it be removed?
- * https://metasys.example.com/api/v3/config?
+ * Real URL will look something like this:
+ * https://metasys.example.com/api/v3?
  * username=admin
  * &password=1234
  * &fqr=TEST_FQR
@@ -29,7 +25,7 @@ const { log } = require('../../log');
  * &maxRequestsPerMinute=60 // 1 req/s
  */
 const JC_CONFIG = Object.freeze({
-    // baseUrl: 'https://<localhost:8000>/api/v3',
+    // baseUrl: 'https://<localhost:8000>/api/v3'
     // credentials: {
     // 	username: 'admin',
     // 	password: '123'
