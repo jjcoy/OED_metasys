@@ -136,7 +136,7 @@ async function getOrCreateMeter(meterName, conn) {
         'US/Eastern', // timezone
         undefined, //gps
         undefined, // identifier
-        undefined, // note
+        'created via JC TESTING on ' + moment().format(), // note
         undefined, //area
         true, // cumulative
         true, //cumulativeReset
