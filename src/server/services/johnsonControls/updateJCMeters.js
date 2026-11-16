@@ -16,7 +16,7 @@ const { readJCData, buildDateRangeRequest } = require('./readJCData.js');
 /**
  * Fetches and loads readings for all enabled Johnson Controls (Metasys) meters, then refreshes
  * the daily and hourly reading views if at least one meter loaded successfully.
- * Data comes from the file in JC_FILE, or from the Metasys API when JC_USE_API=true (see getMeterData in readJCData.js).
+ * Data comes from the Metasys API, or from the file in JC_FILE when JC_USE_API=false (see getMeterData in readJCData.js).
  * Errors are logged rather than thrown.
  * @returns {Promise<Array<{ name: string, isAllReadingsOk: boolean, msgTotal: string }>>}
  *   One result per meter processed. Empty if no meters were found or an error stopped the update.

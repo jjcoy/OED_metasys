@@ -48,22 +48,15 @@ function getCredentialsFromMeter(meter) {
 }
 
 /**
- * Get data for a meter. File by default, live API if JC_USE_API=true.
+ * Get data for a meter. Live API by default, file (JC_FILE) only if JC_USE_API=false.
  * @param {Object} meter
  * @param {string} startDate - ISO 8601
  * @param {string} endDate - ISO 8601
  * @returns {Promise<Object>} JC API JSON
  */
 async function getMeterData(meter, startDate, endDate) {
-    // get data from meter
-    if (process.env.JC_USE_API === 'true') {
-        const jcApi = require('./jcApiClient.js');
-        log.info(`${parseJC.jcLogPrefix(meter.name)} JC_USE_API=true: fetching from the Metasys API`);
-        // Each meter has its own connection information so each one asks its own server for its own fqr.
-        return jcApi.fetchJcMeterData(startDate, endDate, getCredentialsFromMeter(meter));
-    }
     // if testing, read data from a file that is set as JC_FILE when jcTests.js is run
-    else {
+    if (process.env.JC_USE_API === 'false') {
         const filePath = process.env.JC_FILE;
         if (!filePath) {
             throw new Error('JC_FILE is not set');
@@ -71,6 +64,13 @@ async function getMeterData(meter, startDate, endDate) {
 
         log.info(`${parseJC.jcLogPrefix(meter.name)} Reading from file: ${filePath}`);
         return parseJC.fetchJCMeterDataFromFile(filePath);
+    }
+    // otherwise get data from the live Metasys API
+    else {
+        const jcApi = require('./jcApiClient.js');
+        log.info(`${parseJC.jcLogPrefix(meter.name)} Fetching from the Metasys API`);
+        // Each meter has its own connection information so each one asks its own server for its own fqr.
+        return jcApi.fetchJcMeterData(startDate, endDate, getCredentialsFromMeter(meter));
     }
 }
 
