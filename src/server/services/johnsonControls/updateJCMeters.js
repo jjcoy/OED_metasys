@@ -10,8 +10,39 @@ const { log } = require('../../log.js');
 const { refreshDailyReadings, refreshHourlyReadings } = require('../../models/Reading.js');
 // Not used while the meters are processed in sequence. See the TODO in updateJCMeters().
 // const updateMeters = require('../updateMeters.js');
-const parseJC = require('./parsingRequest.js');
-const { readJCData, buildDateRangeRequest } = require('./readJCData.js');
+const { jcLogPrefix } = require('./jcCommon.js');
+const { readJCData } = require('./readJCData.js');
+
+/**
+ * Builds a date range request object for fetching meter data.
+ * Defaults to the past 24 hours if no arguments are provided.
+ * TODO - Consider using the time of the meter's last reading as the default start time.
+ *
+ * @param {Date} startDate - Start of the date range (default: 24 hours ago)
+ * @param {Date} endDate - End of the date range (default: now)
+ * @returns {{ startDate: string, endDate: string }} ISO 8601 formatted date strings
+ *
+ * @example
+ * // Default usage — last 24 hours
+ * buildDateRangeRequest();
+ * // => { startDate: '2024-01-14T10:00:00.000Z', endDate: '2024-01-15T10:00:00.000Z' }
+ *
+ * @example
+ * // Custom range
+ * buildDateRangeRequest(new Date('2024-01-01'), new Date('2024-01-07'));
+ * // => { startDate: '2024-01-01T00:00:00.000Z', endDate: '2024-01-07T00:00:00.000Z' }
+ */
+function buildDateRangeRequest(
+    startDate = new Date(Date.now() - 24 * 60 * 60 * 1000), // 24 hrs ago: 24h * 60m * 60s * 1000ms
+    endDate = new Date()                                      // Current timestamp
+) {
+    // Convert both Date objects to ISO 8601 strings (e.g. "2024-01-15T10:30:00.000Z")
+    // ISO 8601 is used to ensure a consistent, timezone-agnostic format for API requests
+    return {
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString()
+    };
+}
 
 /**
  * Fetches and loads readings for all enabled Johnson Controls (Metasys) meters, then refreshes
@@ -26,11 +57,11 @@ const { readJCData, buildDateRangeRequest } = require('./readJCData.js');
 async function updateJCMeters() {
     const results = [];
 
-    // Get the database connection (the pool connects when the first query runs)
+    // Get the database connection
     const conn = getConnection();
     log.info('Fetching new Johnson Controls meter data');
 
-    // Guard clause (getConnection should always return a connection, so this is a safety check)
+    // Guard clause safety check
     if (!conn) {
         throw new Error('Could not establish database connection');
     }
@@ -39,19 +70,18 @@ async function updateJCMeters() {
         // Retrieve all meters marked as enabled in the database
         const allMeters = await Meter.getEnabled(conn);
 
-        // Narrow the list down to only Johnson Controls (Metasys) meter types,
-        // since this function is specifically responsible for JC data
+        // Narrow the list down to only Johnson Controls (Metasys) meter types
         const metersToUpdate = allMeters.filter(m => m.type === Meter.type.METASYS);
         if (metersToUpdate.length === 0) {
-            log.warn(`${parseJC.jcLogPrefix()} No enabled Metasys meters found`);
+            log.warn(`${jcLogPrefix()} No enabled Metasys meters found`);
         }
 
-        // Build a date range for the data request (defaults to the last 24 hours)
+        // Build a date range for the data request
+        // TODO update this comment when buildDateRangeRequest is modified
         const dateRange = buildDateRangeRequest();
 
-        // Records each meter's outcome, saving errors since
-        // updateMeters would discard what the reader returns. readJCData catches its own
-        // errors, so updateMeters would never see them and they must be recorded here.
+        // Records each meter's outcome (success or failure) in results. readJCData catches its own
+        // errors, so updateMeters() (when used) would not see them and they have to be recorded here.
         const reader = async (meter, meterConn) => {
             results.push(await readJCData(meter, meterConn, dateRange));
         };
@@ -61,18 +91,18 @@ async function updateJCMeters() {
         // await updateMeters(reader, metersToUpdate, conn);
 
         // TEMP - process the meters one at a time
-        log.info(`${parseJC.jcLogPrefix()} Getting meter data for ${metersToUpdate.length} meter(s) in sequence`);
+        log.info(`${jcLogPrefix()} Getting meter data for ${metersToUpdate.length} meter(s) in sequence`);
         for (const meter of metersToUpdate) {
             await reader(meter, conn);
         }
-        log.info(`${parseJC.jcLogPrefix()} Update finished`);
+        log.info(`${jcLogPrefix()} Update finished`);
 
         // Only refresh the aggregated daily and hourly readings if something new was loaded
         if (results.some(r => r.isAllReadingsOk)) {
             await refreshDailyReadings(conn);
             await refreshHourlyReadings(conn);
         } else {
-            log.warn(`${parseJC.jcLogPrefix()} No meters loaded successfully, skipping reading refresh`);
+            log.warn(`${jcLogPrefix()} No meters loaded successfully, skipping reading refresh`);
         }
     } catch (err) {
         log.error(`Error fetching Johnson Controls meter data: ${err}`, err);

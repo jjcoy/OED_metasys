@@ -1,11 +1,14 @@
 /*
-* This Source Code Form is subject to the terms of the Mozilla Public
-* License, v. 2.0. If a copy of the MPL was not distributed with this
-* file, You can obtain one at http://mozilla.org/MPL/2.0/.
-*/
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
 
+const fs = require('fs');
+const path = require('path');
 const { log } = require('../../log.js');
-const parseJC = require('./parsingRequest.js');
+const { jcLogPrefix } = require('./jcCommon.js');
+const parseJC = require('./parseJCData.js');
 
 /**
  * Get the Metasys connection information from a meter's url in the database:
@@ -48,6 +51,35 @@ function getCredentialsFromMeter(meter) {
 }
 
 /**
+ * Fetches meter data from a file containing the JSON response.
+ * Throws if the file is not found or does not contain valid JSON.
+ * @param filePath - path to a file with response
+ * @returns Parsed JSON data
+ */
+async function fetchJCMeterDataFromFile(filePath) {
+    const prefix = jcLogPrefix();
+    const resolvedPath = path.resolve(filePath);
+
+    // throw the error if the file is not found
+    if (!fs.existsSync(resolvedPath)) {
+        throw new Error(`File not found at path: ${resolvedPath}`);
+    }
+
+    // read the file all at once
+    const rawText = await fs.promises.readFile(resolvedPath, 'utf-8');
+    log.info(`${prefix} Successfully read data from file: ${resolvedPath}`);
+
+    // parse the file's contents as a JSON object
+    try {
+        return JSON.parse(rawText);
+    } catch (err) {
+        throw new Error(
+            `Failed to parse JSON from file ${resolvedPath}: ${err.message}`
+        );
+    }
+}
+
+/**
  * Get data for a meter. Live API by default, file (JC_FILE) only if JC_USE_API=false.
  * @param {Object} meter
  * @param {string} startDate - ISO 8601
@@ -55,54 +87,23 @@ function getCredentialsFromMeter(meter) {
  * @returns {Promise<Object>} JC API JSON
  */
 async function getMeterData(meter, startDate, endDate) {
-    // if testing, read data from a file that is set as JC_FILE when jcTests.js is run
+    // if testing, read data from a file that is set as JC_FILE when jcTest.js is run
     if (process.env.JC_USE_API === 'false') {
         const filePath = process.env.JC_FILE;
         if (!filePath) {
             throw new Error('JC_FILE is not set');
         }
 
-        log.info(`${parseJC.jcLogPrefix(meter.name)} Reading from file: ${filePath}`);
-        return parseJC.fetchJCMeterDataFromFile(filePath);
+        log.info(`${jcLogPrefix(meter.name)} Reading from file: ${filePath}`);
+        return fetchJCMeterDataFromFile(filePath);
     }
     // otherwise get data from the live Metasys API
     else {
         const jcApi = require('./jcApiClient.js');
-        log.info(`${parseJC.jcLogPrefix(meter.name)} Fetching from the Metasys API`);
+        log.info(`${jcLogPrefix(meter.name)} Fetching from the Metasys API`);
         // Each meter has its own connection information so each one asks its own server for its own fqr.
         return jcApi.fetchJcMeterData(startDate, endDate, getCredentialsFromMeter(meter));
     }
-}
-
-/**
- * Builds a date range request object for fetching meter data.
- * Defaults to the past 24 hours if no arguments are provided.
- * TODO - Consider using the time of the meter's last reading as the default start time.
- *
- * @param {Date} startDate - Start of the date range (default: 24 hours ago)
- * @param {Date} endDate - End of the date range (default: now)
- * @returns {{ startDate: string, endDate: string }} ISO 8601 formatted date strings
- *
- * @example
- * // Default usage — last 24 hours
- * buildDateRangeRequest();
- * // => { startDate: '2024-01-14T10:00:00.000Z', endDate: '2024-01-15T10:00:00.000Z' }
- *
- * @example
- * // Custom range
- * buildDateRangeRequest(new Date('2024-01-01'), new Date('2024-01-07'));
- * // => { startDate: '2024-01-01T00:00:00.000Z', endDate: '2024-01-07T00:00:00.000Z' }
- */
-function buildDateRangeRequest(
-    startDate = new Date(Date.now() - 24 * 60 * 60 * 1000), // 24 hrs ago: 24h * 60m * 60s * 1000ms
-    endDate = new Date()                                      // Current timestamp
-) {
-    // Convert both Date objects to ISO 8601 strings (e.g. "2024-01-15T10:30:00.000Z")
-    // ISO 8601 is used to ensure a consistent, timezone-agnostic format for API requests
-    return {
-        startDate: startDate.toISOString(),
-        endDate: endDate.toISOString()
-    };
 }
 
 /**
@@ -110,24 +111,28 @@ function buildDateRangeRequest(
  * Errors are caught and returned so the caller can record a per-meter outcome.
  * @param {Object} meter
  * @param {Object} conn
- * @param {{ startDate: string, endDate: string }} [dateRange] defaults to the last 24 hours
+ * @param {{ startDate: string, endDate: string }} dateRange ISO 8601 start and end of the readings to get
  * @returns {Promise<{ name: string, isAllReadingsOk: boolean, msgTotal: string }>}
  */
-async function readJCData(meter, conn, dateRange = buildDateRangeRequest()) {
+async function readJCData(meter, conn, dateRange) {
     try {
+        // read data for this meter from the live API or a file
         const rawData = await getMeterData(meter, dateRange.startDate, dateRange.endDate);
-        // detect some errors here and log them, before exiting this function
+        // process the raw data and load it into the database using loadJCReadings()
         const { isAllReadingsOk, msgTotal } = await parseJC.loadJCReadings(meter, rawData, conn);
+        // check to see if there were errors and log results
         if (isAllReadingsOk) {
-            log.info(`${parseJC.jcLogPrefix(meter.name)} Successfully uploaded readings`);
+            log.info(`${jcLogPrefix(meter.name)} Successfully uploaded readings`);
         } else {
-            log.error(`${parseJC.jcLogPrefix(meter.name)} Failed to upload readings: ${msgTotal}`);
+            log.error(`${jcLogPrefix(meter.name)} Failed to upload readings: ${msgTotal}`);
         }
+        // return the outcome (isAllReadingsOk)
         return { name: meter.name, isAllReadingsOk, msgTotal };
     } catch (err) {
-        log.error(`${parseJC.jcLogPrefix(meter.name)} Error processing meter: ${err.message}`, err);
+        // if a function called by getMeterData() threw an error, catch it and log it
+        log.error(`${jcLogPrefix(meter.name)} Error processing meter: ${err.message}`, err);
         return { name: meter.name, isAllReadingsOk: false, msgTotal: err.message };
     }
 }
 
-module.exports = { readJCData, getMeterData, buildDateRangeRequest };
+module.exports = { readJCData, getMeterData, fetchJCMeterDataFromFile };

@@ -29,10 +29,8 @@ const {
     buildMetasysUri,
     fetchJcMeterData
 } = require('./jcApiClient');
-const {
-    fetchJCMeterDataFromFile,
-    loadJCReadings
-} = require('./parsingRequest');
+const { fetchJCMeterDataFromFile } = require('./readJCData');
+const { loadJCReadings } = require('./parseJCData');
 const { updateJCMeters } = require('./updateJCMeters');
 const fs = require('fs');
 const moment = require('moment');
