@@ -18,7 +18,7 @@ const { log } = require('../../log');
  * https://metasys.example.com/api/v3?
  * username=admin
  * &password=1234
- * &fqr=TEST_FQR
+ * &fqr=TEST_FQR            // FQR = fully qualified reference
  * &attributeId=85          // make this a default value as it seems to be the default in the api docs
  * &pageSize=1000           // Metasys default value is 1000 so that can be left as a default value
  * &maxPages=10             // when the page loop hits 10 it will stop asking for data, null by default
@@ -45,47 +45,23 @@ const JC_CONFIG = Object.freeze({
 });
 
 /**
- * Log a error message and throw error so everything stops
- * @param message error message
+ * A HTTPS agent that allows connections to servers with a self-signed certificate,
+ * such as is used by Metasys, which is only used by jcHttp.
+ * TODO - rejectUnauthorized: false turns off certificate verification through a CA,
+ * which is needed because Metasys uses a self-signed certificate.
+ * A longer-term fix is to keep verification on give the agent the 
+ * Metasys server's own certificate as a trusted 'ca' 
  */
-function logAndError(message) {
-    log.error(`JC ${message}`);
-    throw new Error(`JC ${message}`);
-}
-
-/**
- * TEMP
- * Restrict date range during the testing phase
- * @param startTime start time
- * @param endTime end time
- * @returns void or error
- */
-function restrictDateRange(startTime, endTime) {
-    const start = moment(startTime, moment.ISO_8601, true);
-    const end = moment(endTime, moment.ISO_8601, true);
-
-    if (!start.isValid() || !end.isValid()) {
-        return logAndError(`Invalid start or end time. Start: ${startTime}, End: ${endTime}`);
-    }
-
-    if (!end.isAfter(start)) {
-        return logAndError(`End time must be after start time. Start: ${start}, End: ${end}`);
-    }
-
-    const days = moment.duration(end.diff(start)).asDays();
-    if (days > JC_CONFIG.maxDays) {
-        return logAndError(`Date range ${days} exceed max value: ${JC_CONFIG.maxDays}`);
-    }
-
-    log.info('JC range limit test passed');
-}
+const agent = new https.Agent({ rejectUnauthorized: false, keepAlive: true });
 
 /**
  * A rate limited axios instance
- * We limit the size of the data download through the build it axios values
- * We limit the maximum requests made to the server through the ratelimit package which queues the requests.
+ * We limit the maximum requests made to the server through the ratelimit package which 
+ * queues the requests. All requests use the HTTPS agent above (see the comment there about 
+ * certificate verification).
  */
 const jcHttp = rateLimit(axios.create({
+    httpsAgent: agent,
     timeout: JC_CONFIG.timeout,
     maxContentLength: JC_CONFIG.maxBytes,
     maxBodyLength: JC_CONFIG.maxBytes
@@ -95,11 +71,6 @@ const jcHttp = rateLimit(axios.create({
         duration: `${JC_CONFIG.perMilliseconds}ms`
     }]
 });
-
-/**
- * A HTTPS agent that allows connections to servers with a self-signed certificate
- */
-const agent = new https.Agent({ rejectUnauthorized: false, keepAlive: true });
 
 /**
  * The token cache to reuse the token before it expires
@@ -112,6 +83,43 @@ const agent = new https.Agent({ rejectUnauthorized: false, keepAlive: true });
 const tokenCache = Object.seal({ token: undefined, expiresAt: 0 });
 
 /**
+ * TEMP
+ * Restrict date range during the testing phase
+ * @param startTime start time
+ * @param endTime end time
+ * @returns void or error
+ */
+function restrictDateRange(startTime, endTime) {
+    const start = moment(startTime, moment.ISO_8601, true);
+    const end = moment(endTime, moment.ISO_8601, true);
+
+    // verify times are valid
+    if (!start.isValid() || !end.isValid()) {
+        return logAndError(`Invalid start or end time. Start: ${startTime}, End: ${endTime}`);
+    }
+    if (!end.isAfter(start)) {
+        return logAndError(`End time must be after start time. Start: ${start}, End: ${end}`);
+    }
+
+    // limit the number of days being requested to what is defined in the JC_CONFIG object
+    const days = moment.duration(end.diff(start)).asDays();
+    if (days > JC_CONFIG.maxDays) {
+        return logAndError(`Date range ${days} exceed max value: ${JC_CONFIG.maxDays}`);
+    }
+
+    log.info('JC range limit test passed');
+}
+
+/**
+ * Log a error message and throw error so everything stops
+ * @param message error message
+ */
+function logAndError(message) {
+    log.error(`JC ${message}`);
+    throw new Error(`JC ${message}`);
+}
+
+/**
  * Convert the expires time from ISO 8601 to ms
  * @param expires Time in ISO 8601
  * @returns error or time in ms
@@ -121,11 +129,13 @@ function parseExpires(expires) {
         return logAndError('No expire value was provided to parse');
     }
 
+    // convert to the proper format and check validity
     const parsed = moment(expires, moment.ISO_8601, true);
     if (!parsed.isValid()) {
         return logAndError(`JC expires parsed value is invalid: ${expires}`);
     }
 
+    // return converted expiration time
     return parsed.valueOf();
 }
 
@@ -135,6 +145,7 @@ function parseExpires(expires) {
  * @returns auth header to authenticate
  */
 function authHeader(token) {
+    // return a dictionary with the standard header containing the token
     return {
         Authorization: `Bearer ${token}`,
         Accept: 'application/json'
@@ -142,7 +153,7 @@ function authHeader(token) {
 }
 
 /**
- * Make a login request to Metasys
+ * Make a login request to Metasys, receive the access token in return
  * @param baseUrl metasys baseurl
  * @param username username
  * @param password password
@@ -151,75 +162,78 @@ function authHeader(token) {
 async function jcLogin(baseUrl, username, password) {
     log.info('JC starting login request.');
 
+    // connect to the server through the jcHttp rate limited axios instance
     const response = await jcHttp.post(`${baseUrl}/login`,
         {
             username,
             password
         },
         {
-            httpsAgent: agent,
             headers: { 'Content-Type': 'application/json' }
         }
     ).catch(error => {
         return logAndError(`JC login failed. Error: ${error}`);
     });
 
+    // parse and save received response, which should include the token if successful
     const data = response.data;
     const token = data && data.accessToken;
     if (!token) {
         logAndError(`JC login token was not returned. Data: ${data}`);
     }
 
-    // Metasys returns the expires value in ISO 8601
+    // Metasys returns the expiration value in ISO 8601
     const expiresAt = parseExpires(data.expires);
 
+    // log success and return token and expiration time
     log.info('JC successful login.');
-
     return { token, expiresAt };
 }
 
 /**
- * Get a token that can be used before it expires
+ * Check the token cache to retrieve a token to reuse, or it that token will expire too soon,
+ * log in again to get a new token.
  * @param baseUrl metasys baseurl
  * @param username username
  * @param password password
  * @returns token
  */
 async function getJcToken(baseUrl, username, password) {
-    // Make sure the token isn't going to expire soon so that it doesn't expire in the middle of a request
+    // Make sure the token isn't going to expire soon so that it might expire in the middle of a request
     if (tokenCache.token && Date.now() < (tokenCache.expiresAt - JC_CONFIG.tokenRefreshSkew)) {
         log.info('JC reusing existing token');
         return tokenCache.token;
     }
-
-    const { token, expiresAt } = await jcLogin(baseUrl, username, password);
-    tokenCache.token = token;
-    tokenCache.expiresAt = expiresAt;
-
-    return token;
+    // otherwise, for the case that the token does not exist or will expire too soon, get a new one
+    else {
+        // get a new token
+        const { token, expiresAt } = await jcLogin(baseUrl, username, password);
+        // save it for later, then return the token
+        tokenCache.token = token;
+        tokenCache.expiresAt = expiresAt;
+        return token;
+    }
 }
 
 /**
- * Get a UUID from a FQR
+ * Contact the Metasys server to retrieve a UUID for a given a FQR
  * @param token token
  * @param baseUrl metasys baseurl
- * @param fqr fqr
+ * @param fqr fqr = fully qualified reference
  * @returns uuid
  */
 async function getObjectUuid(token, baseUrl, fqr) {
     const uri = `${baseUrl}/objectIdentifiers?fqr=${fqr}`;
-    // DEBUG
-    // log.info(`uri: ${uri}, token: ${token}, authHeader(token): ${JSON.stringify(authHeader(token))}`);
-
+ 
+    // connect to the Metass server with the request including the FQR
     const response = await jcHttp.get(uri, {
-        httpsAgent: agent,
         headers: authHeader(token)
     }).catch(error => {
         return logAndError(`JC getObjectUuid failed. Error: ${error}`);
     });
 
+    // parse the response, which should include the uuid as a string
     const data = response.data;
-    // Metasys returns a string as a response instead of any values wrapped in objects
     if (typeof data === 'string' && data.length > 0) {
         return data;
     } else {
@@ -228,7 +242,7 @@ async function getObjectUuid(token, baseUrl, fqr) {
 }
 
 /**
- * Build the Metasys URL
+ * Build the Metasys URI for retrieving data for a particular meter given its UUID
  * @param baseUrl metasys baseurl
  * @param uuid uuid
  * @param startTime start time
@@ -237,10 +251,12 @@ async function getObjectUuid(token, baseUrl, fqr) {
  * @returns error or sample url
  */
 function buildMetasysUri(baseUrl, uuid, startTime, endTime, page) {
+    // check that we have not exceeded our page size limits in JC_CONFIG
     if (JC_CONFIG.query.pageSize > JC_CONFIG.maxPageSize) {
         return logAndError(`JC page size exceeded max page size. Size: ${JC_CONFIG.query.pageSize}`);
     }
 
+    // build the search parameters using the standard JavaScript URLSearchParams function
     const params = new URLSearchParams({
         startTime: startTime,
         endTime: endTime,
@@ -249,11 +265,14 @@ function buildMetasysUri(baseUrl, uuid, startTime, endTime, page) {
         sort: JC_CONFIG.query.sort
     });
 
+    // assemble and return the string for the URI
     return `${baseUrl}/objects/${uuid}/attributes/${JC_CONFIG.attributeId}/samples?${params}`;
 }
 
 /**
- * Fetch meter data from a Metasys server
+ * Fetch meter data for one particular meter from a Metasys server,
+ * using the meter's FQR.  There is an underlyin assumption that we have already
+ * logged into the server, but if we have not, the function getJcToken will log in.
  * @param startTime start time
  * @param endTime end time
  * @param credentials { baseUrl, username, password, fqr }
@@ -263,61 +282,78 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
     const baseUrl = credentials.baseUrl;
     const username = credentials.username;
     const password = credentials.password;
-    const fqr = credentials.fqr;
+    const fqr = credentials.fqr;  // this is the meter we want to get this time.
 
+    // TEMP testing guard, will throw and exit if range exceeds requirements.
     restrictDateRange(startTime, endTime);
 
+    // record the current time to measure how long a request takes
     const logStart = moment();
     log.info('JC starting to fetch data');
 
+    // retrieve a stored token with sufficient time remaining before expiration, or get a new token from the server
     const token = await getJcToken(baseUrl, username, password);
+    // we need to then ask Metasys to look up the UUID based on the FQR
+    // TODO: why are we not just also storing the UUID in the database?
     const uuid = await getObjectUuid(token, baseUrl, fqr);
 
-    let uri = buildMetasysUri(baseUrl, uuid, startTime, endTime, 1);
+    // build the uri for the first request for this meter
     let page = 1;
+    let uri = buildMetasysUri(baseUrl, uuid, startTime, endTime, page);
     let lastBody = null;
-    const allItems = [];
+    const allItems = []; // we will collect a multi-page response here
 
-    while (uri) {
-        log.info(`page number request: ${page}`);
+    // Metasys will send us one page of data at a time, including a URL to use to request
+    // additional pages, if any.  Here, we loop over all pages, up to our JC_CONFIG limit.
+    while (uri) { // this will be null when we reach the end
+        // check we have not exceeded the maximum number of pages in JC_CONFIG
         if (page > JC_CONFIG.maxPages) {
             log.info(allItems);
             return logAndError(`Exceeded max pages of ${JC_CONFIG.maxPages} pages`);
         }
+        log.info(`page number request: ${page}`);
 
+        // connect to the Metasys server through the rate-limited axios instance, using this URI
         const response = await jcHttp.get(uri, {
-            httpsAgent: agent,
             headers: authHeader(token)
         }).catch(error => {
             return logAndError(`JC fetchJcMeterData failed. Error: ${error}`);
         });
 
+        // parse the response
         const body = response.data;
+        // if we receive a response with an empty body (or one that is not an Array), we have no more data
         if (!body || !Array.isArray(body.items)) {
             log.info(`Readings at this point: ${JSON.stringify(allItems)}`);
             return logAndError('Response has no items in array');
         }
 
+        // if we received data, add the array to the collected response so far (allItems)
         allItems.push(...body.items);
+        // check to see if we've exceeded our limit in JC_CONFIG, if so, we will stop now
         if (allItems.length > JC_CONFIG.maxSamples) {
             log.info(`Readings at this point: ${JSON.stringify(allItems)}`);
             return logAndError(`Readings have ${allItems.length} values which exceeded the max samples length of ${JC_CONFIG.maxSamples}`);
         }
+
         // DEBUG
         log.info(`Readings size at this point: ${allItems.length}`);
-        // log.info(`Readings at this point: ${JSON.stringify(allItems)}`);
 
+        // TODO: why are we saving this?
         lastBody = body;
+        // if the Metasys server has more data, it will give us a link to the next page in body.next
         uri = body.next ? body.next : null;
+        // increase the page count
         page += 1;
     }
 
+    // finished gathering all the pages of the response; log the time it took
     const logEnd = moment().diff(logStart) / 1000;
     log.info(
         `JC got ${allItems.length} samples over ${page - 1} pages for fqr ${fqr} in ${logEnd} seconds`
     );
 
-    // Return a response with all pages merged into one
+    // Return the response as a dictionary with all pages merged into one
     return { ...lastBody, items: allItems };
 }
 
