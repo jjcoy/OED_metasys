@@ -1,8 +1,8 @@
 /*
-* This Source Code Form is subject to the terms of the Mozilla Public
-* License, v. 2.0. If a copy of the MPL was not distributed with this
-* file, You can obtain one at http://mozilla.org/MPL/2.0/.
-*/
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
 
 const Meter = require('../../models/Meter.js');
 const { getConnection } = require('../../db.js');
@@ -17,18 +17,20 @@ const { readJCData, buildDateRangeRequest } = require('./readJCData.js');
  * Fetches and loads readings for all enabled Johnson Controls (Metasys) meters, then refreshes
  * the daily and hourly reading views if at least one meter loaded successfully.
  * Data comes from the Metasys API, or from the file in JC_FILE when JC_USE_API=false (see getMeterData in readJCData.js).
- * Errors are logged rather than thrown.
+ * Errors are logged rather than thrown, except when there is no database connection.
  * @returns {Promise<Array<{ name: string, isAllReadingsOk: boolean, msgTotal: string }>>}
- *   One result per meter processed. Empty if no meters were found or an error stopped the update.
+ *   One result per meter processed. Empty if no meters were found or getting the meters failed.
+ *   If an error happens after the meters are processed (for example refreshing the views),
+ *   the results so far are still returned.
  */
 async function updateJCMeters() {
     const results = [];
 
-    // Establish a connection to the database before any operations
+    // Get the database connection (the pool connects when the first query runs)
     const conn = getConnection();
     log.info('Fetching new Johnson Controls meter data');
 
-    // Guard clause: abort early if no DB connection could be made
+    // Guard clause (getConnection should always return a connection, so this is a safety check)
     if (!conn) {
         throw new Error('Could not establish database connection');
     }
@@ -54,7 +56,7 @@ async function updateJCMeters() {
             results.push(await readJCData(meter, meterConn, dateRange));
         };
 
-        // TODO - After further testing and approval by OED, run in parallel again. 
+        // TODO - After further testing and approval by OED, run in parallel again.
         // updateMeters uses Promise.all to do all meters at once.
         // await updateMeters(reader, metersToUpdate, conn);
 
@@ -84,7 +86,7 @@ async function updateJCMeters() {
 module.exports = { updateJCMeters };
 
 // Run the update when this file is run directly (e.g., npm run updateJCMeters or cron),
-// but do not run it when the file is imported so the function can be used elsewhere (jcTest.jc).
+// but do not run it when the file is imported so the function can be used elsewhere (jcTest.js).
 if (require.main === module) {
     updateJCMeters()
         .catch(err => {
