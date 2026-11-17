@@ -5,13 +5,17 @@
  */
 
 /**
- * TEMP - This file is used to manually test requests sent and recieved from the Metasys server
+ * TEMP - This file is used to manually test requests to the Metasys server and loading its data into OED
  *
+ * NOTE: the baseUrl should NOT have a trailing slash when executed from the command line
+ *
+ * npm run testjc -- uri <start> <end> --baseUrl=
+ * npm run testjc -- load  <meterName> <file>
+ * npm run testjc -- delete <meterName>
+ * npm run testjc -- update_via_file [file]
  * npm run testjc -- login  --baseUrl= --username= --password=
  * npm run testjc -- uuid   --baseUrl= --username= --password= --fqr=
- * npm run testjc -- uri <start> <end> --baseUrl=
  * npm run testjc -- fetch <start> <end> <outFile> --baseUrl= --username= --password= --fqr=
- * npm run testjc -- load  <meterName> <file>
  */
 
 const { log, LogLevel } = require('../../log');
@@ -22,16 +26,17 @@ const {
     jcLogin,
     getObjectUuid,
     authHeader,
-    buildSampleUri,
+    buildMetasysUri,
     fetchJcMeterData
 } = require('./jcApiClient');
-const {
-    fetchJCMeterDataFromFile,
-    parseJCMeterData,
-    loadJCReadings
-} = require('./parsingRequest');
+const { fetchJCMeterDataFromFile } = require('./readJCData');
+const { loadJCReadings } = require('./parseJCData');
+const { updateJCMeters } = require('./updateJCMeters');
 const fs = require('fs');
 const moment = require('moment');
+
+// Meters made by this file get a note starting with this text. deleteTestMeter only deletes meters with it.
+const TEST_METER_NOTE_PREFIX = 'created via JC TESTING';
 
 /**
  * @param message log message
@@ -43,9 +48,11 @@ function logMsg(message) {
 /**
  * @param credentials { baseUrl, username, password, fqr }
  */
-async function testLogin(credentials) {
+async function testJcLogin(credentials) {
     const { token, expiresAt } = await jcLogin(credentials.baseUrl, credentials.username, credentials.password);
     logMsg(`Logged in to ${credentials.baseUrl}`);
+    // NOTE: the token is a credential that is valid until it expires. Do not save this output
+    // (for example in a file, a commit or a shared log).
     logMsg(`token: ${token}`);
     logMsg(`expires at: ${new Date(expiresAt).toISOString()}`);
 }
@@ -53,7 +60,7 @@ async function testLogin(credentials) {
 /**
  * @param credentials { baseUrl, username, password, fqr }
  */
-async function testUuid(credentials) {
+async function testGetObjectUuid(credentials) {
     const { token } = await jcLogin(credentials.baseUrl, credentials.username, credentials.password);
     const uuid = await getObjectUuid(token, credentials.baseUrl, credentials.fqr);
     logMsg(`fqr:  ${credentials.fqr}`);
@@ -66,25 +73,25 @@ async function testUuid(credentials) {
  * @param endTime end time
  * @param credentials { baseUrl }
  */
-async function testUri(startTime, endTime, credentials) {
+async function testBuildMetasysUri(startTime, endTime, credentials) {
     if (!startTime || !endTime) {
         throw new Error('A start time and an end time are needed');
     }
 
     const token = '<TOKEN>';
     const uuid = '<UUID>';
-    logMsg('GET: \n' + buildSampleUri(credentials.baseUrl, uuid, startTime, endTime, 1));
+    logMsg('GET: \n' + buildMetasysUri(credentials.baseUrl, uuid, startTime, endTime, 1));
     logMsg('\nHEADER: \n' + JSON.stringify(authHeader(token)));
 }
 
 /**
- * Make a request and save the response to a file.
+ * Fetch the meter data with fetchJcMeterData (login, UUID lookup, all pages) and save the merged response to a file.
  * @param startTime start time
  * @param endTime end time
  * @param outFile file to save the response to
  * @param credentials { baseUrl, username, password, fqr }
  */
-async function testFetch(startTime, endTime, outFile, credentials) {
+async function testFetchJcMeterData(startTime, endTime, outFile, credentials) {
     if (!startTime || !endTime) {
         throw new Error('A start time and an end time are needed');
     }
@@ -129,11 +136,11 @@ async function getOrCreateMeter(meterName, conn) {
         null, // URL
         true, // enabled
         true, // displayable
-        Meter.type.JOHNSONCONTROLS, // type
+        Meter.type.METASYS, // type
         'US/Eastern', // timezone
         undefined, //gps
         undefined, // identifier
-        'created via JC TESTING on ' + moment().format(), // note
+        `${TEST_METER_NOTE_PREFIX} on ${moment().format()}`, // note
         undefined, //area
         true, // cumulative
         true, //cumulativeReset
@@ -166,29 +173,92 @@ async function getOrCreateMeter(meterName, conn) {
 }
 
 /**
- * Parse a saved file into a meter, making the meter if needed.
+ * Delete a test meter made by getOrCreateMeter, including its readings and anything else that refers to it.
+ * A meter whose note does not start with TEST_METER_NOTE_PREFIX will not be deleted.
+ * Use this to remove a test meter after running testLoadJCReadings.
  * @param meterName meter name
- * @param filePath file to load
+ * @param conn database connection. The shared connection from getConnection() is used if not given.
  */
-async function testLoad(meterName, filePath) {
-    if (!filePath) {
-        throw new Error('A file to load is needed');
+async function deleteTestMeter(meterName, conn = getConnection()) {
+    if (!meterName) {
+        throw new Error('A meter name is needed');
     }
-    const conn = getConnection();
-    const meter = await getOrCreateMeter(meterName, conn);
-    const rawData = await fetchJCMeterDataFromFile(filePath);
-    const parsed = parseJCMeterData(rawData, meter);
-    const result = await loadJCReadings(meter, rawData, conn);
-    logMsg(`Loaded ${meter.name}: ${parsed.readings.length} readings in the file.`);
-    if (!result.isAllReadingsOk) {
-        logMsg(result.msgTotal);
+    // Find the meter. It may not exist if it was already deleted.
+    const meter = await Meter.getByName(meterName, conn).catch(() => null);
+    if (!meter) {
+        logMsg(`Meter ${meterName} not found so nothing to delete`);
+    } else if (!meter.note || !meter.note.startsWith(TEST_METER_NOTE_PREFIX)) {
+        // Only meters made by JC testing are deleted so a real meter is never removed by mistake.
+        logMsg(`Meter ${meterName} (id ${meter.id}) was not made by JC testing, so it was NOT deleted`);
+    } else {
+        // Delete in one transaction. Tables that refer to the meter go first because of the foreign keys
+        // and the meter row goes last. Either everything is deleted or nothing is.
+        await conn.tx(async t => {
+            await t.none('DELETE FROM readings WHERE meter_id = $1', [meter.id]);
+            await t.none('DELETE FROM baseline WHERE meter_id = $1', [meter.id]);
+            // These two are for if the test meter was added to a group or meter hierarchy while viewing it in the app.
+            await t.none('DELETE FROM groups_immediate_meters WHERE meter_id = $1', [meter.id]);
+            await t.none('DELETE FROM meters_immediate_children WHERE parent_id = $1 OR child_id = $1', [meter.id]);
+            await t.none('DELETE FROM meters WHERE id = $1', [meter.id]);
+        });
+        logMsg(`Deleted meter ${meterName} (id ${meter.id}) and everything that refers to it`);
     }
 }
 
 /**
- *   --baseUrl= --username= --password= --fqr=
+ * Parse a saved file into a meter, making the meter if needed.
+ * WARNING: if a meter with this name already exists it is used as is, even if it is a real meter
+ * (not made by JC testing), and the readings from the file are written to it.
+ * @param meterName meter name
+ * @param filePath file to load
+ */
+async function testLoadJCReadings(meterName, filePath) {
+    if (!filePath) {
+        throw new Error('A file to load is needed');
+    }
+    // run the test to create the meter, open test file, parse it, load it, log result
+    const conn = getConnection();
+    const meter = await getOrCreateMeter(meterName, conn);
+    const rawData = await fetchJCMeterDataFromFile(filePath);
+    const result = await loadJCReadings(meter, rawData, conn);
+    if (result.isAllReadingsOk) {
+        const itemCount = Array.isArray(rawData.items) ? rawData.items.length : 0;
+        logMsg(`Loaded ${meter.name}: ${itemCount} items in the file.`);
+    } else {
+        logMsg(`Failed to load ${meter.name}: ${result.msgTotal}`);
+    }
+}
+
+/**
+ * Run updateJCMeters() the way the cron job will, with the data coming from a file.
+ * Prints a failure message if no meters were processed or any failed.
+ * @param filePath file to read the data from. JC_FILE is used if not given.
+ */
+async function testUpdateJCMeters(filePath) {
+    // determine file to import data from
+    if (filePath) {
+        process.env.JC_FILE = filePath;
+    }
+    if (!process.env.JC_FILE) {
+        throw new Error('A file is needed. Give it as an argument or set JC_FILE');
+    }
+    // getMeterData() reads the file (JC_FILE) when JC_USE_API is set to false
+    process.env.JC_USE_API = 'false';
+    // now do the test of updating all metasys meters (from the same file)
+    const results = await updateJCMeters();
+    if (results.length === 0 || results.some(r => !r.isAllReadingsOk)) {
+        logMsg(`Update did not complete successfully: ${JSON.stringify(results)}`);
+    } else {
+        logMsg(`Updated ${results.length} meter(s): ${results.map(r => r.name).join(', ')}`);
+    }
+}
+
+/**
+ * TEMP
+ * Parse arguments from main() in this file, following usage described in
+ * the file comments above.  This is temporary code, to be removed once main() is removed.
  * @param args process args
- * @returns args in order
+ * @returns { credentials, positional }: the --options as an object, and the other arguments in order
  */
 function parseArgs(args) {
     const credentials = {};
@@ -212,7 +282,47 @@ function parseArgs(args) {
 }
 
 /**
- *
+ * TEMP
+ * Run the test command named by the first argument, or print the list of commands if it is not recognized.
+ * To be removed once main() is deleted.
+ * @param command command
+ * @param first first arg
+ * @param second second arg
+ * @param third third arg
+ * @param credentials connection values from the command line
+ */
+async function runCommand(command, first, second, third, credentials) {
+    switch (command) {
+        case 'login':
+            await testJcLogin(credentials);
+            break;
+        case 'uuid':
+            await testGetObjectUuid(credentials);
+            break;
+        case 'uri':
+            await testBuildMetasysUri(first, second, credentials);
+            break;
+        case 'fetch':
+            await testFetchJcMeterData(first, second, third, credentials);
+            break;
+        case 'load':
+            await testLoadJCReadings(first, second);
+            break;
+        case 'delete':
+            await deleteTestMeter(first);
+            break;
+        case 'update_via_file':
+            await testUpdateJCMeters(first);
+            break;
+        default:
+            logMsg('Provide a command: login, uuid, uri, fetch, load, delete, update_via_file');
+            logMsg('Connection flags: --baseUrl= --username= --password= --fqr=');
+    }
+}
+
+/**
+ * TEMP
+ * Once this testing is moved elsewhere in the app, main() should be deleted.
  */
 async function main() {
     const { credentials, positional } = parseArgs(process.argv.slice(2));
@@ -223,7 +333,8 @@ async function main() {
     log.emailLevel = LogLevel.SILENT;
 
     if (Object.keys(credentials).length > 0) {
-        const shown = { ...credentials };
+        // do not print the username or password
+        const { username, password, ...shown } = credentials;
         logMsg(`Using connection: ${JSON.stringify(shown)}`);
     }
 
@@ -236,41 +347,9 @@ async function main() {
     }
 }
 
-/**
- *
- * @param command command
- * @param first first arg
- * @param second second arg
- * @param third third arg
- * @param credentials connection values from the command line
- */
-async function runCommand(command, first, second, third, credentials) {
-    switch (command) {
-        case 'login':
-            await testLogin(credentials);
-            break;
-        case 'uuid':
-            await testUuid(credentials);
-            break;
-        case 'uri':
-            await testUri(first, second, credentials);
-            break;
-        case 'fetch':
-            await testFetch(first, second, third, credentials);
-            break;
-        case 'load':
-            await testLoad(first, second);
-            break;
-        default:
-            logMsg('Provide a command: login, uuid, uri, fetch, load');
-            logMsg('Connection flags: --baseUrl= --username= --password= --fqr=');
-    }
-}
-
+// TEMP
+// execute from the command line for now.
 main()
-    .then(() => {
-        process.exitCode = 0;
-    })
     .catch(error => {
         logMsg(`\nThat did not work: ${error.message}`);
         process.exitCode = 1;
