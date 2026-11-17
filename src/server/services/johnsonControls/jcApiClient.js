@@ -45,19 +45,19 @@ const JC_CONFIG = Object.freeze({
 });
 
 /**
- * A HTTPS agent that allows connections to servers with a self-signed certificate,
- * such as is used by Metasys, which is only used by jcHttp.
- * TODO - rejectUnauthorized: false turns off certificate verification through a CA,
+ * A HTTPS agent that allows connections to servers with a self-signed certificate, such as Metasys.
+ * It is only used by jcHttp.
+ * TODO - rejectUnauthorized: false turns off all TLS certificate verification (trust chain, expiry and hostname),
  * which is needed because Metasys uses a self-signed certificate.
- * A longer-term fix is to keep verification on give the agent the 
- * Metasys server's own certificate as a trusted 'ca' 
+ * A longer-term fix is to keep verification on and give the agent the Metasys server's own certificate
+ * as a trusted 'ca', or to make rejectUnauthorized a setting that can differ per server.
  */
 const agent = new https.Agent({ rejectUnauthorized: false, keepAlive: true });
 
 /**
  * A rate limited axios instance
- * We limit the maximum requests made to the server through the ratelimit package which 
- * queues the requests. All requests use the HTTPS agent above (see the comment there about 
+ * We limit the maximum requests made to the server through the ratelimit package which
+ * queues the requests. All requests use the HTTPS agent above (see the comment there about
  * certificate verification).
  */
 const jcHttp = rateLimit(axios.create({
@@ -74,7 +74,7 @@ const jcHttp = rateLimit(axios.create({
 
 /**
  * The token cache to reuse the token before it expires
- * Object.seal prevents any of the properties of the object from changing while the values can change
+ * Object.seal prevents properties from being added or removed, but the existing values can still change.
  * TODO - This holds a single token for the whole process. It works when every JC meter uses the same Metasys
  * server and login. If meters use different servers or usernames (each meter's url has its own connection
  * information), a token from one server could be reused for another. Key the cache by baseUrl and username
@@ -87,7 +87,7 @@ const tokenCache = Object.seal({ token: undefined, expiresAt: 0 });
  * Restrict date range during the testing phase
  * @param startTime start time
  * @param endTime end time
- * @returns void or error
+ * @returns nothing; throws an error if the dates are invalid or out of range
  */
 function restrictDateRange(startTime, endTime) {
     const start = moment(startTime, moment.ISO_8601, true);
@@ -111,7 +111,7 @@ function restrictDateRange(startTime, endTime) {
 }
 
 /**
- * Log a error message and throw error so everything stops
+ * Log an error message and throw error so everything stops
  * @param message error message
  */
 function logAndError(message) {
@@ -122,7 +122,7 @@ function logAndError(message) {
 /**
  * Convert the expires time from ISO 8601 to ms
  * @param expires Time in ISO 8601
- * @returns error or time in ms
+ * @returns time in ms; throws an error if expires is missing or invalid
  */
 function parseExpires(expires) {
     if (!expires) {
@@ -191,7 +191,7 @@ async function jcLogin(baseUrl, username, password) {
 }
 
 /**
- * Check the token cache to retrieve a token to reuse, or it that token will expire too soon,
+ * Check the token cache to retrieve a token to reuse, or if that token will expire too soon,
  * log in again to get a new token.
  * @param baseUrl metasys baseurl
  * @param username username
@@ -199,7 +199,7 @@ async function jcLogin(baseUrl, username, password) {
  * @returns token
  */
 async function getJcToken(baseUrl, username, password) {
-    // Make sure the token isn't going to expire soon so that it might expire in the middle of a request
+    // Reuse the cached token only if it has more than the limit specified in JC_CONFIG left, so it does not expire in the middle of a request
     if (tokenCache.token && Date.now() < (tokenCache.expiresAt - JC_CONFIG.tokenRefreshSkew)) {
         log.info('JC reusing existing token');
         return tokenCache.token;
@@ -216,7 +216,7 @@ async function getJcToken(baseUrl, username, password) {
 }
 
 /**
- * Contact the Metasys server to retrieve a UUID for a given a FQR
+ * Contact the Metasys server to retrieve a UUID for a given FQR
  * @param token token
  * @param baseUrl metasys baseurl
  * @param fqr fqr = fully qualified reference
@@ -224,8 +224,8 @@ async function getJcToken(baseUrl, username, password) {
  */
 async function getObjectUuid(token, baseUrl, fqr) {
     const uri = `${baseUrl}/objectIdentifiers?fqr=${fqr}`;
- 
-    // connect to the Metass server with the request including the FQR
+
+    // connect to the Metasys server with the request including the FQR
     const response = await jcHttp.get(uri, {
         headers: authHeader(token)
     }).catch(error => {
@@ -248,7 +248,7 @@ async function getObjectUuid(token, baseUrl, fqr) {
  * @param startTime start time
  * @param endTime end time
  * @param page page number
- * @returns error or sample url
+ * @returns sample url; throws an error if the page size exceeds the max
  */
 function buildMetasysUri(baseUrl, uuid, startTime, endTime, page) {
     // check that we have not exceeded our page size limits in JC_CONFIG
@@ -256,7 +256,7 @@ function buildMetasysUri(baseUrl, uuid, startTime, endTime, page) {
         return logAndError(`JC page size exceeded max page size. Size: ${JC_CONFIG.query.pageSize}`);
     }
 
-    // build the search parameters using the standard JavaScript URLSearchParams function
+    // build the search parameters using the standard JavaScript URLSearchParams class
     const params = new URLSearchParams({
         startTime: startTime,
         endTime: endTime,
@@ -271,12 +271,13 @@ function buildMetasysUri(baseUrl, uuid, startTime, endTime, page) {
 
 /**
  * Fetch meter data for one particular meter from a Metasys server,
- * using the meter's FQR.  There is an underlyin assumption that we have already
- * logged into the server, but if we have not, the function getJcToken will log in.
+ * using the meter's FQR.  A login is not needed beforehand. getJcToken reuses a cached
+ * token or logs in when needed.
+ * TODO: check to see if we want this auto-login behavior.
  * @param startTime start time
  * @param endTime end time
  * @param credentials { baseUrl, username, password, fqr }
- * @returns metasys response data
+ * @returns metasys response data with all pages merged into one response
  */
 async function fetchJcMeterData(startTime, endTime, credentials) {
     const baseUrl = credentials.baseUrl;
@@ -287,11 +288,12 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
     // TEMP testing guard, will throw and exit if range exceeds requirements.
     restrictDateRange(startTime, endTime);
 
-    // record the current time to measure how long a request takes
+    // record the current time as the start time to measure how long the whole fetch takes
     const logStart = moment();
     log.info('JC starting to fetch data');
 
-    // retrieve a stored token with sufficient time remaining before expiration, or get a new token from the server
+    // retrieve a stored token with sufficient time remaining before expiration,
+    // or get a new token from the server
     const token = await getJcToken(baseUrl, username, password);
     // we need to then ask Metasys to look up the UUID based on the FQR
     // TODO: why are we not just also storing the UUID in the database?
@@ -300,7 +302,7 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
     // build the uri for the first request for this meter
     let page = 1;
     let uri = buildMetasysUri(baseUrl, uuid, startTime, endTime, page);
-    let lastBody = null;
+    let firstBody = null;
     const allItems = []; // we will collect a multi-page response here
 
     // Metasys will send us one page of data at a time, including a URL to use to request
@@ -322,13 +324,13 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
 
         // parse the response
         const body = response.data;
-        // if we receive a response with an empty body (or one that is not an Array), we have no more data
+        // a missing body, or items that are not an array, is an error
         if (!body || !Array.isArray(body.items)) {
             log.info(`Readings at this point: ${JSON.stringify(allItems)}`);
             return logAndError('Response has no items in array');
         }
 
-        // if we received data, add the array to the collected response so far (allItems)
+        // add this page's items to the collected response so far (allItems)
         allItems.push(...body.items);
         // check to see if we've exceeded our limit in JC_CONFIG, if so, we will stop now
         if (allItems.length > JC_CONFIG.maxSamples) {
@@ -339,22 +341,35 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
         // DEBUG
         log.info(`Readings size at this point: ${allItems.length}`);
 
-        // TODO: why are we saving this?
-        lastBody = body;
+        // keep the first page's metadata (self, previous, total, attribute, objectUrl)
+        // to describe the merged result when the function exits
+        if (page === 1) {
+            firstBody = body;
+        }
+
         // if the Metasys server has more data, it will give us a link to the next page in body.next
         uri = body.next ? body.next : null;
         // increase the page count
         page += 1;
     }
 
-    // finished gathering all the pages of the response; log the time it took
+    // we have finished gathering all the pages of the response; log the time it took
     const logEnd = moment().diff(logStart) / 1000;
     log.info(
         `JC got ${allItems.length} samples over ${page - 1} pages for fqr ${fqr} in ${logEnd} seconds`
     );
 
-    // Return the response as a dictionary with all pages merged into one
-    return { ...lastBody, items: allItems };
+    // Warn if the number of samples received does not match the total Metasys reported
+    if (firstBody.total !== undefined && firstBody.total !== allItems.length) {
+        log.warn(`JC expected ${firstBody.total} samples but received ${allItems.length} for fqr ${fqr}`);
+    }
+
+    // Return the response as a dictionary with all pages merged into one,
+    // including the metadata from the first page response, except for the next: field
+    // which is set to null.
+    // Note that the self entry is still the URL of the first request (page=1 and our
+    // original, smaller pageSize), so this does not exactly represent a single large page.
+    return { ...firstBody, next: null, items: allItems };
 }
 
 module.exports = {
