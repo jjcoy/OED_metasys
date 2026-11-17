@@ -9,13 +9,13 @@
  * 
  * NOTE: the baseUrl should NOT have a trailing slash when executed from the command line
  *
- * npm run testjc -- login  --baseUrl= --username= --password=
- * npm run testjc -- uuid   --baseUrl= --username= --password= --fqr=
  * npm run testjc -- uri <start> <end> --baseUrl=
- * npm run testjc -- fetch <start> <end> <outFile> --baseUrl= --username= --password= --fqr=
  * npm run testjc -- load  <meterName> <file>
  * npm run testjc -- delete <meterName>
  * npm run testjc -- update_via_file [file]
+ * npm run testjc -- login  --baseUrl= --username= --password=
+ * npm run testjc -- uuid   --baseUrl= --username= --password= --fqr=
+ * npm run testjc -- fetch <start> <end> <outFile> --baseUrl= --username= --password= --fqr=
  */
 
 const { log, LogLevel } = require('../../log');
@@ -47,7 +47,7 @@ function logMsg(message) {
 /**
  * @param credentials { baseUrl, username, password, fqr }
  */
-async function testLogin(credentials) {
+async function testJcLogin(credentials) {
     const { token, expiresAt } = await jcLogin(credentials.baseUrl, credentials.username, credentials.password);
     logMsg(`Logged in to ${credentials.baseUrl}`);
     logMsg(`token: ${token}`);
@@ -57,7 +57,7 @@ async function testLogin(credentials) {
 /**
  * @param credentials { baseUrl, username, password, fqr }
  */
-async function testUuid(credentials) {
+async function testGetObjectUuid(credentials) {
     const { token } = await jcLogin(credentials.baseUrl, credentials.username, credentials.password);
     const uuid = await getObjectUuid(token, credentials.baseUrl, credentials.fqr);
     logMsg(`fqr:  ${credentials.fqr}`);
@@ -70,7 +70,7 @@ async function testUuid(credentials) {
  * @param endTime end time
  * @param credentials { baseUrl }
  */
-async function testUri(startTime, endTime, credentials) {
+async function testBuildMetasysUri(startTime, endTime, credentials) {
     if (!startTime || !endTime) {
         throw new Error('A start time and an end time are needed');
     }
@@ -88,7 +88,7 @@ async function testUri(startTime, endTime, credentials) {
  * @param outFile file to save the response to
  * @param credentials { baseUrl, username, password, fqr }
  */
-async function testFetch(startTime, endTime, outFile, credentials) {
+async function testFetchJcMeterData(startTime, endTime, outFile, credentials) {
     if (!startTime || !endTime) {
         throw new Error('A start time and an end time are needed');
     }
@@ -171,7 +171,7 @@ async function getOrCreateMeter(meterName, conn) {
 
 /**
  * Completely delete a meter made by getOrCreateMeter, including its readings and anything else that refers to it.
- * Use this to remove a test meter after running testLoad.
+ * Use this to remove a test meter after running testLoadJCReadings.
  * @param meterName meter name
  * @param conn database connection. A new one is used if not given.
  */
@@ -203,7 +203,7 @@ async function deleteTestMeter(meterName, conn = getConnection()) {
  * @param meterName meter name
  * @param filePath file to load
  */
-async function testLoad(meterName, filePath) {
+async function testLoadJCReadings(meterName, filePath) {
     if (!filePath) {
         throw new Error('A file to load is needed');
     }
@@ -225,7 +225,7 @@ async function testLoad(meterName, filePath) {
  * Logs an error if no meters were processed or any failed.
  * @param filePath file to read the data from. JC_FILE is used if not given.
  */
-async function testUpdateViaFile(filePath) {
+async function testUpdateJCMeters(filePath) {
     // determine file to import data from
     if (filePath) {
         process.env.JC_FILE = filePath;
@@ -306,25 +306,25 @@ async function main() {
 async function runCommand(command, first, second, third, credentials) {
     switch (command) {
         case 'login':
-            await testLogin(credentials);
+            await testJcLogin(credentials);
             break;
         case 'uuid':
-            await testUuid(credentials);
+            await testGetObjectUuid(credentials);
             break;
         case 'uri':
-            await testUri(first, second, credentials);
+            await testBuildMetasysUri(first, second, credentials);
             break;
         case 'fetch':
-            await testFetch(first, second, third, credentials);
+            await testFetchJcMeterData(first, second, third, credentials);
             break;
         case 'load':
-            await testLoad(first, second);
+            await testLoadJCReadings(first, second);
             break;
         case 'delete':
             await deleteTestMeter(first);
             break;
         case 'update_via_file':
-            await testUpdateViaFile(first);
+            await testUpdateJCMeters(first);
             break;
         default:
             logMsg('Provide a command: login, uuid, uri, fetch, load, delete, update_via_file');
