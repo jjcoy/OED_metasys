@@ -7,6 +7,7 @@
 const moment = require('moment');
 const { getConnection } = require('../db');
 const Reading = require('../models/Reading');
+const { meterTimezone } = require('../services/meterTimezone');
 const { log } = require('../log.js');
 
 /**
@@ -48,7 +49,7 @@ async function nextMeterStartDate(meter, needPrevious = false, shiftDate = true,
 		// the last reading to see if they agree. If not, then these are seem out of time order
 		// so OED will try to correct.
 		// The meter endTimestamp is stored as a string so we need to parse and then convert to UTC.
-		const endTimestampTz = moment.parseZone(this.meter.endTimestamp, true);
+		const endTimestampTz = moment.parseZone(meter.endTimestamp, true);
 		// Note this modifies the endTimestampTz object.
 		const lastTimestamp = moment.parseZone(endTimestampTz.tz('UTC', true));
 		if (!lastTimestamp.isSame(returnDate)) {
@@ -61,8 +62,8 @@ async function nextMeterStartDate(meter, needPrevious = false, shiftDate = true,
 				// in this case. To be safe, used 1.5x the meter frequency?? to shift the return date
 				// back in time. Since OED usually drops duplicate readings, it will ignore any already
 				// acquired at the small price of asking for another readings.
-				const shift = moment.duration(moment.duration(meter.readingFrequency).asSeconds * 1.5);
-				returnDate = returnDate.clone().subtract(shift);
+				const shift = meter.readingFrequency.asSeconds() * 1.5;
+				returnDate = returnDate.clone().subtract(shift, 'seconds');
 				msg += ` Since needPrevious is true, the returnDate was shifted back by ${shift.asMinutes} minutes to give a returnDate of ${returnDate}`;
 			}
 			// Log the complete message.
@@ -75,7 +76,7 @@ async function nextMeterStartDate(meter, needPrevious = false, shiftDate = true,
 			// To avoid getting that reading again, shift the return data forward.
 			// To be general and safe, the start time is 0.01 seconds later.
 			// This seems very safe since the frequency of getting data will never be that small.
-			let returnDateMoment = returnDate.clone().add(0.01, 'seconds');
+			returnDate = returnDate.clone().add(0.01, 'seconds');
 		}
 		if (putInMeterTz) {
 			// OED returns readings in UTC even though they are in the meter time zone reference
@@ -85,11 +86,11 @@ async function nextMeterStartDate(meter, needPrevious = false, shiftDate = true,
 			const meterZone = await meterTimezone(meter);
 			// Next change the date/time to be in the meter time zone without changing the date/time.
 			// This keeps the time the same but applies the time zone.
-			const dateMeterTz = returnDateMoment.tz(meterZone, true);
+			returnDate = returnDate.clone().tz(meterZone, true);
 		}
 		// Now put the time in UTC. If the caller wants a different time zone then a shift is needed
 		// in that code. So far, systems have generally worked in UTC so returning that.
-		const returnDate = dateMeterTz.utc();
+		returnDate = moment.utc(returnDate);
 	}
 	return returnDate;
 }
