@@ -22,7 +22,7 @@ const {
 	//unitDatakWh,
 	//conversionDatakWh,
 	//meterDatakWh
-} = require('../../util/readingsUtils');
+} = require('../../util/readingsTestUtils');
 
 mocha.describe('readings API', () => {
 	mocha.describe('readings test, test if data returned by API is as expected', () => {

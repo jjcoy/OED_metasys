@@ -21,7 +21,7 @@ const { meterLineReadings,
 	validateThreeDQueryParams,
 } = require('../../routes/unitReadings');
 
-const { createTimeString } = require('../../util/readingsUtils');
+const { createTimeString } = require('../../util/readingsTestUtils');
 
 const { TimeInterval } = require('../../../common/TimeInterval');
 

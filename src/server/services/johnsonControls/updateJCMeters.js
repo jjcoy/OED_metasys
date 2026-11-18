@@ -83,57 +83,6 @@ function buildDateRangeRequest(
     };
 }
 
-// TODO should this take a conn? Maybe yes if calling function has it.
-/**
- * For the provided meter, it returns the date as an ISO string to use for the next Metasys request
- * for that meter. The value is the latest reading endTimestamp for that meter.
- * If there is no readings for that meter then it will return a very early date
- * to indicate all Metasys readings should be acquired for that meter.
- * @param {Meter) meter The meter object for the meter desired.
- * @returns {Promise<string>}
- */
-async function nextJCMeterStartDate(meter) {
-    // TODO This needs to be rolled to other places such as eGauge.
-    // TODO It would be good to check the last meter reading value on the meter object to see how it compares to
-    // what is found this way. Probably log when differs and need to decide if should do something special.
-    // This is the date as a string to return if there are no readings for this meter.
-    // It is a very early date and somewhat arbitrary but set to the
-    // first Unix date for now in ISO format.
-    const DEFAULT_EARLY_DATE = '1970-01-01T00:00:00Z';
-    // Establish a connection to the database before any operations
-    const conn = await getConnection();
-    // Get the latest end timestamp for this meter.
-    let returnDate = await Reading.getLastEndtimeByMeterId(meter.id, conn);
-    if (returnDate === null) {
-        // The meter has no readings so use the default, early date.
-        returnDate = DEFAULT_EARLY_DATE;
-    } else {
-        // The next reading has a start time that is the same as the last reading's end time.
-        // Since don't want to get the last reading from the previous request again, want to
-        // shift the return data forward. Testing of Metasys found that as long as it is later
-        // then it works fine. To be general and safe, the start time is 0.01 seconds later.
-        // This seems very safe since the frequency of getting data will never be that small.
-        // Note Metasys is end time so that is why OED wants the start to be after the last
-        // readings end time so it is not acquired.
-        // Put the returnData into a moment object and shift by 0.01 seconds.
-        // TODO See if needs to be generalized when used with other systems.
-        let returnDateMoment = moment(returnDate).add(0.01, 'seconds');
-        // OED returns readings in UTC even though they are in the meter time zone reference
-        // if that is used as is done for Metasys. Thus, must shift the time to UTC for the
-        // next date/time request. Thus, make this in the meter time zone and then shift to UTC.
-        // First determine the best guess of the meter time zone.
-        const meterZone = await meterTimezone(meter);
-        // Next change the date/time to be in the meter time zone without changing the date/time.
-        // This keeps the time the same but applies the time zone.
-        const dateMeterTz = returnDateMoment.tz(meterZone, true);
-        // Now put the time in UTC.
-        const dateUtc = dateMeterTz.utc();
-        // Want as a canonical string format for date/time for Metasys which is ISO.
-        returnDate = dateUtc.toISOString();
-    }
-    return returnDate;
-}
-
 /**
  * Processes meter readings from a JSON data file and uploads them to OED database.
  * Handles data validation, reliability checks, and reading transformations.
@@ -219,4 +168,4 @@ if (require.main === module) {
     main().catch(console.error);
 }
 
-module.exports = { nextJCMeterStartDate, updateJCMeters, buildDateRangeRequest, processMeter, getMeterData };
+module.exports = { updateJCMeters, buildDateRangeRequest, processMeter, getMeterData };

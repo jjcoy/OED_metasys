@@ -12,7 +12,7 @@ const { app } = require('../commonTestDB');
 const { createTimeString,
     ETERNITY,
     METER_ID,
-    GROUP_ID} = require('../../util/readingsUtils');
+    GROUP_ID} = require('../../util/readingsTestUtils');
 const { HTTP_CODES } = require('../../util/httpCodes');
 
 // These tests check the API behavior when improper calls are made, typically with incomplete parameters
