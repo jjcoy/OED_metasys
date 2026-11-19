@@ -255,6 +255,19 @@ class Reading {
 	}
 
 	/**
+	 * Returns a promise to get the latest end_timestamp for any reading for meter with meterID
+	 * where it returns null if there are no readings for that meter.
+	 * @param meterId The id of the meter to find latest end_timestamp.
+	 * @param conn is the connection to use.
+	 * @returns {Promise.<Moment>}
+	 */
+	static async getLastEndtimeByMeterId(meterId, conn) {
+		const returnedValue = await conn.one(sqlFile('reading/get_last_endtime_by_meter_id.sql'), { meterId: meterId });
+		// Get the returned value from the object returned.
+		return returnedValue['last_endtime'];
+	}
+
+	/**
 	 * Returns a promise to insert this reading into the database.
 	 * @param conn is the connection to use.
 	 * @returns {Promise.<>}

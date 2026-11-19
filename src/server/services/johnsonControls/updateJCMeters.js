@@ -4,7 +4,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
+const moment = require('moment');
 const Meter = require('../../models/Meter.js');
+const Reading = require('../../models/Reading');
 const { getConnection } = require('../../db.js');
 const { log } = require('../../log.js');
 const { refreshDailyReadings, refreshHourlyReadings } = require('../../models/Reading.js');

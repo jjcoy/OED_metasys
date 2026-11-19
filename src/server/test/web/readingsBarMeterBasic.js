@@ -15,7 +15,7 @@ const { prepareTest,
     METER_ID,
     unitDatakWh,
     conversionDatakWh,
-    meterDatakWh } = require('../../util/readingsUtils');
+    meterDatakWh } = require('../../util/readingsTestUtils');
 const { HTTP_CODES } = require('../../util/httpCodes');
 
 mocha.describe('readings API', () => {

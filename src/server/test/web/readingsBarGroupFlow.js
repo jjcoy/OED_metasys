@@ -17,7 +17,7 @@ const { prepareTest,
 	getUnitId,
 	ETERNITY,
 	METER_ID,
-	GROUP_ID } = require('../../util/readingsUtils');
+	GROUP_ID } = require('../../util/readingsTestUtils');
 
 mocha.describe('readings API', () => {
 	mocha.describe('readings test, test if data returned by API is as expected', () => {
