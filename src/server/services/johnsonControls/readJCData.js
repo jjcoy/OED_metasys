@@ -36,10 +36,13 @@ function getCredentialsFromMeter(meter) {
     // build credentials needed
     const credentials = {
         // No trailing slash since the API client adds /login, /objects, etc.
-        baseUrl: `${url.origin}${url.pathname}`.replace(/\/+$/, ''),
+        // .replace(/\/+$/, '')
+        baseUrl: `${url.origin}${url.pathname}`,
         username: url.searchParams.get('username'),
         password: url.searchParams.get('password'),
         fqr: url.searchParams.get('fqr')
+        // TODO DEBUG This stops the request for data from happening
+        // , skipRequest: true
     };
     // check for missing parts needed to build a valid url
     const missing = ['username', 'password', 'fqr'].filter(key => !credentials[key]);
@@ -101,9 +104,11 @@ async function getMeterData(meter, startDate, endDate) {
     else {
         const jcApi = require('./jcApiClient.js');
         log.info(`${jcLogPrefix(meter.name)} Fetching from the Metasys API`);
+        console.log('startDate, endDate: ', startDate, endDate);
         // Each meter has its own connection information so each one asks its own server for its own fqr.
-        return jcApi.fetchJcMeterData(startDate, endDate, getCredentialsFromMeter(meter));
-    }
+        const credentials = getCredentialsFromMeter(meter);
+        return jcApi.fetchJcMeterData(startDate, endDate, credentials);
+     }
 }
 
 /**
@@ -118,6 +123,8 @@ async function readJCData(meter, conn, dateRange) {
     try {
         // read data for this meter from the live API or a file
         const rawData = await getMeterData(meter, dateRange.startDate, dateRange.endDate);
+        // TODO DEBUG
+        console.log('readJCData, rawData: ', rawData);
         // process the raw data and load it into the database using loadJCReadings()
         const { isAllReadingsOk, msgTotal } = await parseJC.loadJCReadings(meter, rawData, conn);
         // check to see if there were errors and log results

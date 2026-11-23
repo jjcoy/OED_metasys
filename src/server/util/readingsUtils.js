@@ -64,7 +64,7 @@ async function nextMeterStartDate(meter, needPrevious = false, shiftDate = true,
 				// acquired at the small price of asking for another readings.
 				const shift = meter.readingFrequency.asSeconds() * 1.5;
 				returnDate = returnDate.clone().subtract(shift, 'seconds');
-				msg += ` Since needPrevious is true, the returnDate was shifted back by ${shift.asMinutes} minutes to give a returnDate of ${returnDate}`;
+				msg += ` Since needPrevious is true, the returnDate was shifted back by ${shift} seconds to give a returnDate of ${returnDate}`;
 			}
 			// Log the complete message.
 			log.warn(msg);
@@ -86,11 +86,15 @@ async function nextMeterStartDate(meter, needPrevious = false, shiftDate = true,
 			const meterZone = await meterTimezone(meter);
 			// Next change the date/time to be in the meter time zone without changing the date/time.
 			// This keeps the time the same but applies the time zone.
+			console.log('nextMeterStartDate before meter TZ, returnDate: ', returnDate);
 			returnDate = returnDate.clone().tz(meterZone, true);
+			console.log('nextMeterStartDate after meter TZ, returnDate: ', returnDate);
 		}
 		// Now put the time in UTC. If the caller wants a different time zone then a shift is needed
 		// in that code. So far, systems have generally worked in UTC so returning that.
+		console.log('nextMeterStartDate before UTC, returnDate: ', returnDate);
 		returnDate = moment.utc(returnDate);
+		console.log('nextMeterStartDate, returnDate: ', returnDate);
 	}
 	return returnDate;
 }

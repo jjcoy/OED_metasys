@@ -25,10 +25,10 @@ const { log } = require('../../log');
  * &maxRequestsPerMinute=60 // 1 req/s
  */
 const JC_CONFIG = Object.freeze({
-    // baseUrl: 'https://<localhost:8000>/api/v3'
+    // baseUrl: 'https://<localhost:8000>/api/v3',
     // credentials: {
-    // 	username: 'admin',
-    // 	password: '123'
+    // username: 'admin',
+    // password: '123'
     // },
     // fqr: 'Metasys15_NAE-47_ModbusTCP',
     attributeId: 85,
@@ -38,10 +38,13 @@ const JC_CONFIG = Object.freeze({
     timeout: 100000,
     maxPageSize: 50,
     maxPages: 2,
-    maxDays: 7,
+    maxDays: 2,
+    // TODO DEBUG Dangerous so be careful!!!!!!!!!!
+    // TODO Is this actually making a difference when doing live API calls????
+    // maxDays: 2000,
     maxSamples: 100,
     maxBytes: 25000,
-    tokenRefreshSkew: 60000
+    tokenRefreshSkew: 60000,
 });
 
 /**
@@ -165,8 +168,8 @@ async function jcLogin(baseUrl, username, password) {
     // connect to the server through the jcHttp rate limited axios instance
     const response = await jcHttp.post(`${baseUrl}/login`,
         {
-            username,
-            password
+            username: username,
+            password: password
         },
         {
             headers: { 'Content-Type': 'application/json' }
@@ -302,6 +305,14 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
     // build the uri for the first request for this meter
     let page = 1;
     let uri = buildMetasysUri(baseUrl, uuid, startTime, endTime, page);
+    // TODO DEBUG start
+    if (credentials.skipRequest) {
+        console.log('uri: ', uri);
+        console.log('startTime, endTime: ', startTime, endTime);
+        // Set uri to null so no actual request is made.
+        uri = null;
+        console.log('skipRequest true so not making an actual request');
+    }
     let firstBody = null;
     const allItems = []; // we will collect a multi-page response here
 
@@ -315,6 +326,7 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
         }
         log.info(`page number request: ${page}`);
 
+        console.log('fetchJcMeterData before sending to Metasys, uri: ', uri);
         // connect to the Metasys server through the rate-limited axios instance, using this URI
         const response = await jcHttp.get(uri, {
             headers: authHeader(token)
@@ -360,7 +372,7 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
     );
 
     // Warn if the number of samples received does not match the total Metasys reported
-    if (firstBody.total !== undefined && firstBody.total !== allItems.length) {
+    if (firstBody && firstBody.total !== undefined && firstBody.total !== allItems.length) {
         log.warn(`JC expected ${firstBody.total} samples but received ${allItems.length} for fqr ${fqr}`);
     }
 

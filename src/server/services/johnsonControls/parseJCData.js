@@ -110,6 +110,7 @@ async function loadJCReadings(meter, rawData, conn) {
         // the existence of parsing errors mean there is nothing valid to load so report failure 
         // instead of loading no readings. (parseJCMeterData() exits on error)
         if (parseResult.errors.length > 0) {
+            console.log('loadJCReadings, parseResult.errors.length: ', parseResult.errors.length);
             return {
                 isAllReadingsOk: false,
                 msgTotal: parseResult.errors.join('; ')
@@ -123,14 +124,16 @@ async function loadJCReadings(meter, rawData, conn) {
             );
         }
 
-        // log that we found readings and are starting to load them into the database.
-        // included in the log are all the readings
-        log.info(
-            `${prefix} Readings being sent to loadArrayInput: ${JSON.stringify(parseResult.readings)}`
-        );
+        // TODO DEBUG log that we found readings and are starting to load them into the database.
+        // included in the log are all the readings. Don't do if a lot of readings.
+        if (parseResult.readings.length < 100) {
+            log.info(
+                `${prefix} Readings being sent to loadArrayInput: ${JSON.stringify(parseResult.readings)}`
+            );
+        }
 
         // attempt to load the data that was parsed by parseJCMeterData, for this meter
-        return await loadArrayInput(
+        const loadArrayResult = await loadArrayInput(
             parseResult.readings,
             meter.id,
             row => [row[0], row[1]],
@@ -160,6 +163,23 @@ async function loadJCReadings(meter, rawData, conn) {
             true, // useMeterZone
             false // warnOnCumulativeReset
         );
+        // TODO This is a bit of a hack. OED returns isAllReadingsOk as false from loadArrayInput
+        // if any readings are dropped even if many are still loaded. This should not count as a
+        // failure for loading JC/Metasys data. A proper fix probably involves changing what is
+        // returned to differential between load failures (no readings added) and pipeline concerns
+        // but it is used in several places so that is a bigger fix. For now, if some readings parsed
+        // okay then change isAllReadingsOk to true since it did not completely fail in loadArrayInput.
+        // Note the pipeline should have already logged any concerns so they should not be missed.
+        // This could miss that none were added but right now the returned isAllReadingsOk is only
+        // used to decide if going to refresh the readings so doing it if not really needed (not data
+        // added) is not going to cause an issue and only slow the code down a little.
+        // Unsure if parseResult.readings.length can be zero but checking to be safe.
+        if (!loadArrayResult.isAllReadingsOk && parseResult.readings.length !== 0) {
+            // TODO DEBUG output
+            console.log(`${prefix} loadArrayInput returned isAllReadingsOk as false but readings parsed okay so going to refresh`);
+            loadArrayResult.isAllReadingsOk = true;
+        }
+        return loadArrayResult;
     } catch (err) {
         // catch an error thrown by LoadArrayInput() and log it.
         log.error(
