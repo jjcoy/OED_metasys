@@ -316,7 +316,7 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
     while (uri) {
         // check we have not exceeded the maximum number of pages in JC_CONFIG
         if (page > JC_CONFIG.maxPages) {
-            log.info(allItems);
+            log.info(`Received ${allItems.length} readings in ${page - 1} pages before reaching the max pages limit`);
             return logAndError(`Exceeded max pages of ${JC_CONFIG.maxPages} pages`);
         }
         log.info(`page number request: ${page}`);
