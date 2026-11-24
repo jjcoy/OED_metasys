@@ -310,7 +310,7 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
     // we will collect a multi-page response here
     const allItems = [];
 
-    // Metasys will send us one page of data at a time, including a URL to use to request
+    // Metasys will send us one page of data at a time, including a URI to use to request
     // additional pages, if any.  Here, we loop over all pages, up to our JC_CONFIG limit.
     // The uri will be null when we reach the end.
     while (uri) {
@@ -373,7 +373,7 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
     // Return the response as a dictionary with all pages merged into one,
     // including the metadata from the first page response, except for the next: field
     // which is set to null.
-    // Note that the self entry is still the URL of the first request (page=1 and our
+    // Note that the self entry is still the URI of the first request (page=1 and our
     // original, smaller pageSize), so this does not exactly represent a single large page.
     return { ...firstBody, next: null, items: allItems };
 }
