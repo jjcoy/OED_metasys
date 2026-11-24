@@ -242,7 +242,9 @@ async function getObjectUuid(token, baseUrl, fqr) {
 }
 
 /**
- * Build the Metasys URI for retrieving data for a particular meter given its UUID
+ * Build the Metasys URI for retrieving one page of the data for a particular meter, given its UUID.
+ * The data is limited to the start and end time given. Metasys may need more than one page to
+ * return all the data in that time range, so this is called once per page.
  * @param baseUrl metasys baseurl
  * @param uuid uuid
  * @param startTime start time
