@@ -173,8 +173,9 @@ async function getOrCreateMeter(meterName, conn) {
 }
 
 /**
- * Delete a test meter made by getOrCreateMeter, including its readings and anything else that refers to it.
+ * Delete a test meter made by getOrCreateMeter, including its readings.
  * A meter whose note does not start with TEST_METER_NOTE_PREFIX will not be deleted.
+ * If anything else refers to the meter (baseline, a group or a meter hierarchy) it will not be deleted.
  * Use this to remove a test meter after running testLoadJCReadings.
  * @param meterName meter name
  * @param conn database connection. The shared connection from getConnection() is used if not given.
@@ -191,17 +192,14 @@ async function deleteTestMeter(meterName, conn = getConnection()) {
         // Only meters made by JC testing are deleted so a real meter is never removed by mistake.
         logMsg(`Meter ${meterName} (id ${meter.id}) was not made by JC testing, so it was NOT deleted`);
     } else {
-        // Delete in one transaction. Tables that refer to the meter go first because of the foreign keys
-        // and the meter row goes last. Either everything is deleted or nothing is.
+        // Delete in one transaction. The readings go first because of the foreign key, and the meter
+        // row goes last. If anything else refers to the meter, such as a baseline, group or meter
+        // hierarchy, deleting the meter fails and the transaction is rolled back so nothing is deleted.
         await conn.tx(async t => {
             await t.none('DELETE FROM readings WHERE meter_id = $1', [meter.id]);
-            await t.none('DELETE FROM baseline WHERE meter_id = $1', [meter.id]);
-            // These two are for if the test meter was added to a group or meter hierarchy while viewing it in the app.
-            await t.none('DELETE FROM groups_immediate_meters WHERE meter_id = $1', [meter.id]);
-            await t.none('DELETE FROM meters_immediate_children WHERE parent_id = $1 OR child_id = $1', [meter.id]);
             await t.none('DELETE FROM meters WHERE id = $1', [meter.id]);
         });
-        logMsg(`Deleted meter ${meterName} (id ${meter.id}) and everything that refers to it`);
+        logMsg(`Deleted meter ${meterName} (id ${meter.id}) and its readings`);
     }
 }
 
