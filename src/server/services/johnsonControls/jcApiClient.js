@@ -248,7 +248,7 @@ async function getObjectUuid(token, baseUrl, fqr) {
  * @param startTime start time
  * @param endTime end time
  * @param page page number
- * @returns sample url; throws an error if the page size exceeds the max
+ * @returns the URI to request this page of the meter's samples (readings); throws an error if the page size exceeds the max
  */
 function buildMetasysUri(baseUrl, uuid, startTime, endTime, page) {
     // check that we have not exceeded our page size limits in JC_CONFIG
