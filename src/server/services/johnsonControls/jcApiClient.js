@@ -25,7 +25,7 @@ const { log } = require('../../log');
  * &maxRequestsPerMinute=60 // 1 req/s
  */
 const JC_CONFIG = Object.freeze({
-    // baseUrl: 'https://<localhost:8000>/api/v3'
+    // baseUrl: 'https://<localhost:8000>/api/v3',
     // credentials: {
     // 	username: 'admin',
     // 	password: '123'
