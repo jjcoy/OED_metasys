@@ -332,7 +332,7 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
         const body = response.data;
         // a missing body, or items that are not an array, is an error
         if (!body || !Array.isArray(body.items)) {
-            log.info(`Readings at this point: ${JSON.stringify(allItems)}`);
+            log.info(`Received ${allItems.length} readings in ${page - 1} pages before this response`);
             return logAndError('Response has no items in array');
         }
 
@@ -340,7 +340,6 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
         allItems.push(...body.items);
         // check to see if we've exceeded our limit in JC_CONFIG, if so, we will stop now
         if (allItems.length > JC_CONFIG.maxSamples) {
-            log.info(`Readings at this point: ${JSON.stringify(allItems)}`);
             return logAndError(`Readings have ${allItems.length} values which exceeded the max samples length of ${JC_CONFIG.maxSamples}`);
         }
 
