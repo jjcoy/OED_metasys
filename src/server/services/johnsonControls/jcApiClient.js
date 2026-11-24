@@ -368,6 +368,8 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
         `JC got ${allItems.length} samples over ${page - 1} pages for fqr ${fqr} in ${logEnd} seconds`
     );
 
+    // TODO A mismatch likely means something is off. OED needs to decide if a warning is enough
+    // or if the readings should be rejected (as OED generally does) or a stronger message given.
     // Warn if the number of samples received does not match the total Metasys reported
     if (firstBody.total !== undefined && firstBody.total !== allItems.length) {
         log.warn(`JC expected ${firstBody.total} samples but received ${allItems.length} for fqr ${fqr}`);
