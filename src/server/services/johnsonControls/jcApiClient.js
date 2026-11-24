@@ -333,7 +333,7 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
         // a missing body, or items that are not an array, is an error
         if (!body || !Array.isArray(body.items)) {
             log.info(`Received ${allItems.length} readings in ${page - 1} pages before this response`);
-            return logAndError('Response has no items in array');
+            return logAndError('Response has no body or its items are not an array');
         }
 
         // add this page's items to the collected response so far (allItems)
