@@ -285,7 +285,8 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
     const baseUrl = credentials.baseUrl;
     const username = credentials.username;
     const password = credentials.password;
-    const fqr = credentials.fqr;  // this is the meter we want to get this time.
+    // this is the meter we want to get this time
+    const fqr = credentials.fqr;
 
     // TEMP testing guard, will throw and exit if range exceeds requirements.
     restrictDateRange(startTime, endTime);
@@ -305,11 +306,13 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
     let page = 1;
     let uri = buildMetasysUri(baseUrl, uuid, startTime, endTime, page);
     let firstBody = null;
-    const allItems = []; // we will collect a multi-page response here
+    // we will collect a multi-page response here
+    const allItems = [];
 
     // Metasys will send us one page of data at a time, including a URL to use to request
     // additional pages, if any.  Here, we loop over all pages, up to our JC_CONFIG limit.
-    while (uri) { // this will be null when we reach the end
+    // The uri will be null when we reach the end.
+    while (uri) {
         // check we have not exceeded the maximum number of pages in JC_CONFIG
         if (page > JC_CONFIG.maxPages) {
             log.info(allItems);
