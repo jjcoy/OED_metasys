@@ -83,7 +83,7 @@ const jcHttp = rateLimit(axios.create({
 const tokenCache = Object.seal({ token: undefined, expiresAt: 0 });
 
 /**
- * TEMP
+ * TODO
  * Restrict date range during the testing phase
  * @param startTime start time
  * @param endTime end time
@@ -288,7 +288,9 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
     // this is the meter we want to get this time
     const fqr = credentials.fqr;
 
-    // TEMP testing guard, will throw and exit if range exceeds requirements.
+    // TODO testing guard, will throw and exit if range exceeds requirements.
+    // This limit may need to be raised or removed so the first request for a meter with no
+    // readings does not fail.
     restrictDateRange(startTime, endTime);
 
     // record the current time as the start time to measure how long the whole fetch takes
