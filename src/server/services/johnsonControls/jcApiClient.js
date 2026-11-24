@@ -315,6 +315,8 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
     // The uri will be null when we reach the end.
     while (uri) {
         // check we have not exceeded the maximum number of pages in JC_CONFIG
+        // TODO Instead of throwing an error and discarding what was received, consider returning the
+        // readings received so far so OED can process them and make progress on the next request.
         if (page > JC_CONFIG.maxPages) {
             log.info(`Received ${allItems.length} readings in ${page - 1} pages before reaching the max pages limit`);
             return logAndError(`Exceeded max pages of ${JC_CONFIG.maxPages} pages`);
@@ -339,6 +341,8 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
         // add this page's items to the collected response so far (allItems)
         allItems.push(...body.items);
         // check to see if we've exceeded our limit in JC_CONFIG, if so, we will stop now
+        // TODO See the TODO on maxPages above. The same idea applies here: consider processing the
+        // readings received instead of discarding them.
         if (allItems.length > JC_CONFIG.maxSamples) {
             return logAndError(`Readings have ${allItems.length} values which exceeded the max samples length of ${JC_CONFIG.maxSamples}`);
         }
