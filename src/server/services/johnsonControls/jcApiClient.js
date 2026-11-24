@@ -301,7 +301,6 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
     // or get a new token from the server
     const token = await getJcToken(baseUrl, username, password);
     // we need to then ask Metasys to look up the UUID based on the FQR
-    // TODO: why are we not just also storing the UUID in the database?
     const uuid = await getObjectUuid(token, baseUrl, fqr);
 
     // build the uri for the first request for this meter
