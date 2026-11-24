@@ -145,7 +145,8 @@ async function loadJCReadings(meter, rawData, conn) {
             0, // readingGap
             0, // readingLengthVariation
             true, // isEndOnly
-            true, // shouldUpdate
+            // Previous values should not change, so existing readings are not updated (as for Mamac and eGauge).
+            false, // shouldUpdate
             {
                 minVal: meter.minVal,
                 maxVal: meter.maxVal,
