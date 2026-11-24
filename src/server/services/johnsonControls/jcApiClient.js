@@ -132,7 +132,7 @@ function parseExpires(expires) {
     // convert to the proper format and check validity
     const parsed = moment(expires, moment.ISO_8601, true);
     if (!parsed.isValid()) {
-        return logAndError(`JC expires parsed value is invalid: ${expires}`);
+        return logAndError(`expires parsed value is invalid: ${expires}`);
     }
 
     // return converted expiration time
@@ -172,14 +172,14 @@ async function jcLogin(baseUrl, username, password) {
             headers: { 'Content-Type': 'application/json' }
         }
     ).catch(error => {
-        return logAndError(`JC login failed. Error: ${error}`);
+        return logAndError(`login failed. Error: ${error}`);
     });
 
     // parse and save received response, which should include the token if successful
     const data = response.data;
     const token = data && data.accessToken;
     if (!token) {
-        logAndError(`JC login token was not returned. Data: ${data}`);
+        logAndError('login token was not returned.');
     }
 
     // Metasys returns the expiration value in ISO 8601
@@ -229,7 +229,7 @@ async function getObjectUuid(token, baseUrl, fqr) {
     const response = await jcHttp.get(uri, {
         headers: authHeader(token)
     }).catch(error => {
-        return logAndError(`JC getObjectUuid failed. Error: ${error}`);
+        return logAndError(`getObjectUuid failed. Error: ${error}`);
     });
 
     // parse the response, which should include the uuid as a string
@@ -237,7 +237,7 @@ async function getObjectUuid(token, baseUrl, fqr) {
     if (typeof data === 'string' && data.length > 0) {
         return data;
     } else {
-        return logAndError(`JC getObjectUuid returned no uuid for ${fqr}`);
+        return logAndError(`getObjectUuid returned no uuid for ${fqr}`);
     }
 }
 
@@ -253,7 +253,7 @@ async function getObjectUuid(token, baseUrl, fqr) {
 function buildMetasysUri(baseUrl, uuid, startTime, endTime, page) {
     // check that we have not exceeded our page size limits in JC_CONFIG
     if (JC_CONFIG.query.pageSize > JC_CONFIG.maxPageSize) {
-        return logAndError(`JC page size exceeded max page size. Size: ${JC_CONFIG.query.pageSize}`);
+        return logAndError(`page size exceeded max page size. Size: ${JC_CONFIG.query.pageSize}`);
     }
 
     // build the search parameters using the standard JavaScript URLSearchParams class
@@ -319,7 +319,7 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
         const response = await jcHttp.get(uri, {
             headers: authHeader(token)
         }).catch(error => {
-            return logAndError(`JC fetchJcMeterData failed. Error: ${error}`);
+            return logAndError(`fetchJcMeterData failed. Error: ${error}`);
         });
 
         // parse the response
