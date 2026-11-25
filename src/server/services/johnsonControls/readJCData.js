@@ -9,6 +9,7 @@ const path = require('path');
 const { log } = require('../../log.js');
 const { jcLogPrefix } = require('./jcCommon.js');
 const parseJC = require('./parseJCData.js');
+const jcApi = require('./jcApiClient.js');
 
 /**
  * Get the Metasys connection information from a meter's url in the database:
@@ -99,7 +100,6 @@ async function getMeterData(meter, startDate, endDate) {
     }
     // otherwise get data from the live Metasys API
     else {
-        const jcApi = require('./jcApiClient.js');
         log.info(`${jcLogPrefix(meter.name)} Fetching from the Metasys API`);
         // Each meter has its own connection information so each one asks its own server for its own fqr.
         return jcApi.fetchJcMeterData(startDate, endDate, getCredentialsFromMeter(meter));
