@@ -93,6 +93,9 @@ async function updateJCMeters() {
         }
         log.info(`${jcLogPrefix()} Update finished`);
 
+        // TODO The upcoming version of OED is fusing the update of readings.
+        // Furthermore, a planned release, maybe after that, is removing the need for the update
+        // of readings. Thus, this will need to be updated later.
         // Only refresh the aggregated daily and hourly readings if something new was loaded
         if (results.some(r => r.isAllReadingsOk)) {
             await refreshDailyReadings(conn);
