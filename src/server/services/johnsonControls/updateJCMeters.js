@@ -103,7 +103,7 @@ async function updateJCMeters() {
             await refreshHourlyReadings(conn);
         }
     } catch (err) {
-        log.error(`Error fetching Johnson Controls meter data: ${err}`, err);
+        log.error(`${jcLogPrefix()} Error getting the Metasys meters or refreshing the readings: ${err}`, err);
     }
 
     // Reached whether the try block succeeded or the catch handled an error
