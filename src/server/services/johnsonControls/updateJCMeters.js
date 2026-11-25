@@ -101,8 +101,6 @@ async function updateJCMeters() {
         if (results.some(r => r.isAllReadingsOk)) {
             await refreshDailyReadings(conn);
             await refreshHourlyReadings(conn);
-        } else {
-            log.warn(`${jcLogPrefix()} No meters loaded successfully, skipping reading refresh`);
         }
     } catch (err) {
         log.error(`Error fetching Johnson Controls meter data: ${err}`, err);
