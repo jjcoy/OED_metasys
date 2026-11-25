@@ -104,7 +104,7 @@ async function getMeterData(meter, startDate, endDate) {
 	// otherwise get data from the live Metasys API
 	else {
 		log.info(`${jcLogPrefix(meter.name)} Fetching from the Metasys API`);
-		console.log('startDate, endDate: ', startDate, endDate);
+		console.log('****startDate, endDate: ', startDate, endDate); // TODO DEBUG
 		// Each meter has its own connection information so each one asks its own server for its own fqr.
 		const credentials = getCredentialsFromMeter(meter);
 		return jcApi.fetchJcMeterData(startDate, endDate, credentials);

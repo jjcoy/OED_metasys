@@ -134,20 +134,21 @@ async function loadJCReadings(meter, rawData, conn) {
 			);
 		}
 
+		// TODO Some values really should have a specific meter value. Should OED check and warn if not correct?
 		// attempt to load the data that was parsed by parseJCMeterData, for this meter
 		const loadArrayResult = await loadArrayInput(
 			parseResult.readings,
 			meter.id,
 			row => [row[0], row[1]],
 			'increasing', // timeSort
-			1, // readingRepetition
-			true, // isCumulative
-			false, // cumulativeReset
-			'00:00:00', // cumulativeResetStart
-			'23:59:59', // cumulativeResetEnd
-			0, // readingGap
-			0, // readingLengthVariation
-			true, // isEndOnly
+			meter.readingDuplication,
+			meter.cumulative, // usually true
+			meter.cumulativeReset, // usually true
+			meter.cumulativeResetStart,
+			meter.cumulativeResetEnd,
+			meter.readingGap,
+			meter.readingVariation,
+			meter.endOnlyTime, // usually true
 			// Previous values should not change, so existing readings are not updated (as for Mamac and eGauge).
 			false, // shouldUpdate
 			{
@@ -156,9 +157,8 @@ async function loadJCReadings(meter, rawData, conn) {
 				minDate: meter.minDate,
 				maxDate: meter.maxDate,
 				threshold: 0,
-				// TODO - Discuss - honor meter value
 				maxError: meter.maxError,
-				disableChecks: 'reject_none'
+				disableChecks: meter.disableChecks
 			},
 			conn,
 			true, // honorDst

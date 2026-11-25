@@ -317,6 +317,7 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
 		uri = null;
 		console.log('skipRequest true so not making an actual request');
 	}
+	// TODO DEBUG end
 	let firstBody = null;
 	// we will collect a multi-page response here
 	const allItems = [];

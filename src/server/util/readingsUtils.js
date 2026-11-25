@@ -86,15 +86,11 @@ async function nextMeterStartDate(meter, needPrevious = false, shiftDate = true,
 			const meterZone = await meterTimezone(meter);
 			// Next change the date/time to be in the meter time zone without changing the date/time.
 			// This keeps the time the same but applies the time zone.
-			console.log('nextMeterStartDate before meter TZ, returnDate: ', returnDate);
 			returnDate = returnDate.clone().tz(meterZone, true);
-			console.log('nextMeterStartDate after meter TZ, returnDate: ', returnDate);
 		}
 		// Now put the time in UTC. If the caller wants a different time zone then a shift is needed
 		// in that code. So far, systems have generally worked in UTC so returning that.
-		console.log('nextMeterStartDate before UTC, returnDate: ', returnDate);
 		returnDate = moment.utc(returnDate);
-		console.log('nextMeterStartDate, returnDate: ', returnDate);
 	}
 	return returnDate;
 }
