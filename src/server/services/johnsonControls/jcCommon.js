@@ -16,7 +16,7 @@
  * @returns Log prefix string
  */
 function jcLogPrefix(meterName) {
-    return meterName ? `[JC-${meterName}]` : '[JC]';
+	return meterName ? `[JC-${meterName}]` : '[JC]';
 }
 
 module.exports = { jcLogPrefix };

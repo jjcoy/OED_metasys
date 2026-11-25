@@ -20,75 +20,75 @@ const { jcLogPrefix } = require('./jcCommon.js');
  */
 
 function parseJCMeterData(rawData, meter) {
-    // set up logging message for this meter
-    const prefix = jcLogPrefix(meter.name);
-    // prepare result to store reports
-    const result = {
-        readings: [],
-        warnings: [],
-        errors: []
-    };
+	// set up logging message for this meter
+	const prefix = jcLogPrefix(meter.name);
+	// prepare result to store reports
+	const result = {
+		readings: [],
+		warnings: [],
+		errors: []
+	};
 
-    // report if the rawData is null or does not contain the items array
-    if (!rawData || !Array.isArray(rawData.items)) {
-        const msg = 'Invalid API response structure';
-        result.errors.push(msg);
-        log.error(`${prefix} ${msg}`);
-        return result;
-    }
+	// report if the rawData is null or does not contain the items array
+	if (!rawData || !Array.isArray(rawData.items)) {
+		const msg = 'Invalid API response structure';
+		result.errors.push(msg);
+		log.error(`${prefix} ${msg}`);
+		return result;
+	}
 
-    // extract the items array
-    const jsonItems = rawData.items;
+	// extract the items array
+	const jsonItems = rawData.items;
 
-    // if no data was returned, record an error and log it
-    if (jsonItems.length === 0) {
-        const msg = `No data returned from the query for meter ${meter.name} (ID: ${meter.id})`;
-        result.errors.push('No data returned from the query');
-        log.error(`${prefix} ${msg}`);
-        return result;
-    }
+	// if no data was returned, record an error and log it
+	if (jsonItems.length === 0) {
+		const msg = `No data returned from the query for meter ${meter.name} (ID: ${meter.id})`;
+		result.errors.push('No data returned from the query');
+		log.error(`${prefix} ${msg}`);
+		return result;
+	}
 
-    // look for unreliable results.  if there are any, add to the warnings messages
-    const unreliable = jsonItems.filter(
-        it => it && it.isReliable === false
-    ).length;
-    if (unreliable > 0) {
-        const msg = `Data reliability warning: isReliable flag is false for meter ${meter.name} (ID: ${meter.id})`;
-        result.warnings.push(
-            'Data reliability warning: isReliable flag is false'
-        );
-        log.warn(`${prefix} ${msg}`);
-    }
+	// look for unreliable results.  if there are any, add to the warnings messages
+	const unreliable = jsonItems.filter(
+		it => it && it.isReliable === false
+	).length;
+	if (unreliable > 0) {
+		const msg = `Data reliability warning: isReliable flag is false for meter ${meter.name} (ID: ${meter.id})`;
+		result.warnings.push(
+			'Data reliability warning: isReliable flag is false'
+		);
+		log.warn(`${prefix} ${msg}`);
+	}
 
-    // warn if any item has a unit other than kWh (added to warnings and logged)
-    // TODO: this can likely be improved
-    const wrongUnit = jsonItems.find(
-        it =>
-            it &&
-            it.value &&
-            it.value.units &&
-            it.value.units !== 'unitEnumSet.kwattHours'
-    );
-    if (wrongUnit) {
-        const msg = `Unit warning: kwattHours flag is false for meter ${meter.name} (ID: ${meter.id})`;
-        result.warnings.push('Unit warning: kwattHours flag is false');
-        log.warn(`${prefix} ${msg}`);
-    }
+	// warn if any item has a unit other than kWh (added to warnings and logged)
+	// TODO: this can likely be improved
+	const wrongUnit = jsonItems.find(
+		it =>
+			it &&
+			it.value &&
+			it.value.units &&
+			it.value.units !== 'unitEnumSet.kwattHours'
+	);
+	if (wrongUnit) {
+		const msg = `Unit warning: kwattHours flag is false for meter ${meter.name} (ID: ${meter.id})`;
+		result.warnings.push('Unit warning: kwattHours flag is false');
+		log.warn(`${prefix} ${msg}`);
+	}
 
-    // look through the jsonItems (this is rawData.items) and pull out the results
-    // that contain numbers, then store into readings with the value and its timestamp
-    result.readings = jsonItems
-        .filter(it => it && it.value && typeof it.value.value === 'number')
-        .map(it => [it.value.value, it.timestamp]);
+	// look through the jsonItems (this is rawData.items) and pull out the results
+	// that contain numbers, then store into readings with the value and its timestamp
+	result.readings = jsonItems
+		.filter(it => it && it.value && typeof it.value.value === 'number')
+		.map(it => [it.value.value, it.timestamp]);
 
-    // log how many readings were parsed
-    log.info(
-        `${prefix} Parsed ${result.readings.length} valid readings from response`
-    );
+	// log how many readings were parsed
+	log.info(
+		`${prefix} Parsed ${result.readings.length} valid readings from response`
+	);
 
-    // return the result object, which contains an array of readings, plus warnings
-    // and errors
-    return result;
+	// return the result object, which contains an array of readings, plus warnings
+	// and errors
+	return result;
 }
 
 /**
@@ -101,102 +101,102 @@ function parseJCMeterData(rawData, meter) {
  *   this way, not thrown.
  */
 async function loadJCReadings(meter, rawData, conn) {
-    const prefix = jcLogPrefix(meter.name);  // configure the prefix for logging this meter's data
+	const prefix = jcLogPrefix(meter.name);  // configure the prefix for logging this meter's data
 
-    log.info('JC Started parsing data');
+	log.info('JC Started parsing data');
 
-    try {
-        // process the rawData into an object that contains errors, warnings, and readings
-        const parseResult = parseJCMeterData(rawData, meter);
+	try {
+		// process the rawData into an object that contains errors, warnings, and readings
+		const parseResult = parseJCMeterData(rawData, meter);
 
-        // the existence of parsing errors mean there is nothing valid to load so report failure 
-        // instead of loading no readings. (parseJCMeterData() exits on error)
-        if (parseResult.errors.length > 0) {
-            console.log('loadJCReadings, parseResult.errors.length: ', parseResult.errors.length);
-            return {
-                isAllReadingsOk: false,
-                msgTotal: parseResult.errors.join('; ')
-            };
-        }
+		// the existence of parsing errors mean there is nothing valid to load so report failure 
+		// instead of loading no readings. (parseJCMeterData() exits on error)
+		if (parseResult.errors.length > 0) {
+			console.log('loadJCReadings, parseResult.errors.length: ', parseResult.errors.length);
+			return {
+				isAllReadingsOk: false,
+				msgTotal: parseResult.errors.join('; ')
+			};
+		}
 
-        // log the warnings for this meter, if any
-        if (parseResult.warnings.length > 0) {
-            log.warn(
-                `${prefix} Parsing warnings: ${parseResult.warnings.join('; ')}`
-            );
-        }
+		// log the warnings for this meter, if any
+		if (parseResult.warnings.length > 0) {
+			log.warn(
+				`${prefix} Parsing warnings: ${parseResult.warnings.join('; ')}`
+			);
+		}
 
-        // TODO DEBUG log that we found readings and are starting to load them into the database.
-        // included in the log are all the readings. Don't do if a lot of readings.
-        if (parseResult.readings.length < 100) {
-            log.info(
-                `${prefix} Readings being sent to loadArrayInput: ${JSON.stringify(parseResult.readings)}`
-            );
-        }
+		// TODO DEBUG log that we found readings and are starting to load them into the database.
+		// included in the log are all the readings. Don't do if a lot of readings.
+		if (parseResult.readings.length < 100) {
+			log.info(
+				`${prefix} Readings being sent to loadArrayInput: ${JSON.stringify(parseResult.readings)}`
+			);
+		}
 
-        // attempt to load the data that was parsed by parseJCMeterData, for this meter
-        const loadArrayResult = await loadArrayInput(
-            parseResult.readings,
-            meter.id,
-            row => [row[0], row[1]],
-            'increasing', // timeSort
-            1, // readingRepetition
-            true, // isCumulative
-            false, // cumulativeReset
-            '00:00:00', // cumulativeResetStart
-            '23:59:59', // cumulativeResetEnd
-            0, // readingGap
-            0, // readingLengthVariation
-            true, // isEndOnly
-            // Previous values should not change, so existing readings are not updated (as for Mamac and eGauge).
-            false, // shouldUpdate
-            {
-                minVal: meter.minVal,
-                maxVal: meter.maxVal,
-                minDate: meter.minDate,
-                maxDate: meter.maxDate,
-                threshold: 0,
-                // TODO - Discuss - honor meter value
-                maxError: meter.maxError,
-                disableChecks: 'reject_none'
-            },
-            conn,
-            true, // honorDst
-            false, // relaxedParsing
-            true, // useMeterZone
-            false // warnOnCumulativeReset
-        );
-        // TODO This is a bit of a hack. OED returns isAllReadingsOk as false from loadArrayInput
-        // if any readings are dropped even if many are still loaded. This should not count as a
-        // failure for loading JC/Metasys data. A proper fix probably involves changing what is
-        // returned to differential between load failures (no readings added) and pipeline concerns
-        // but it is used in several places so that is a bigger fix. For now, if some readings parsed
-        // okay then change isAllReadingsOk to true since it did not completely fail in loadArrayInput.
-        // Note the pipeline should have already logged any concerns so they should not be missed.
-        // This could miss that none were added but right now the returned isAllReadingsOk is only
-        // used to decide if going to refresh the readings so doing it if not really needed (not data
-        // added) is not going to cause an issue and only slow the code down a little.
-        // Unsure if parseResult.readings.length can be zero but checking to be safe.
-        if (!loadArrayResult.isAllReadingsOk && parseResult.readings.length !== 0) {
-            // TODO DEBUG output
-            console.log(`${prefix} loadArrayInput returned isAllReadingsOk as false but readings parsed okay so going to refresh`);
-            loadArrayResult.isAllReadingsOk = true;
-        }
-        return loadArrayResult;
-    } catch (err) {
-        // catch an error thrown by LoadArrayInput() and log it.
-        log.error(
-            `${prefix} Error in loadJCReadings for meter ${meter.name} (ID: ${meter.id}): ${err.message}`
-        );
-        // return from this function with an error indicated by isAllReadingsOk
-        return {
-            isAllReadingsOk: false,
-            msgTotal: err.message
-        };
-    }
+		// attempt to load the data that was parsed by parseJCMeterData, for this meter
+		const loadArrayResult = await loadArrayInput(
+			parseResult.readings,
+			meter.id,
+			row => [row[0], row[1]],
+			'increasing', // timeSort
+			1, // readingRepetition
+			true, // isCumulative
+			false, // cumulativeReset
+			'00:00:00', // cumulativeResetStart
+			'23:59:59', // cumulativeResetEnd
+			0, // readingGap
+			0, // readingLengthVariation
+			true, // isEndOnly
+			// Previous values should not change, so existing readings are not updated (as for Mamac and eGauge).
+			false, // shouldUpdate
+			{
+				minVal: meter.minVal,
+				maxVal: meter.maxVal,
+				minDate: meter.minDate,
+				maxDate: meter.maxDate,
+				threshold: 0,
+				// TODO - Discuss - honor meter value
+				maxError: meter.maxError,
+				disableChecks: 'reject_none'
+			},
+			conn,
+			true, // honorDst
+			false, // relaxedParsing
+			true, // useMeterZone
+			false // warnOnCumulativeReset
+		);
+		// TODO This is a bit of a hack. OED returns isAllReadingsOk as false from loadArrayInput
+		// if any readings are dropped even if many are still loaded. This should not count as a
+		// failure for loading JC/Metasys data. A proper fix probably involves changing what is
+		// returned to differential between load failures (no readings added) and pipeline concerns
+		// but it is used in several places so that is a bigger fix. For now, if some readings parsed
+		// okay then change isAllReadingsOk to true since it did not completely fail in loadArrayInput.
+		// Note the pipeline should have already logged any concerns so they should not be missed.
+		// This could miss that none were added but right now the returned isAllReadingsOk is only
+		// used to decide if going to refresh the readings so doing it if not really needed (not data
+		// added) is not going to cause an issue and only slow the code down a little.
+		// Unsure if parseResult.readings.length can be zero but checking to be safe.
+		if (!loadArrayResult.isAllReadingsOk && parseResult.readings.length !== 0) {
+			// TODO DEBUG output
+			console.log(`${prefix} loadArrayInput returned isAllReadingsOk as false but readings parsed okay so going to refresh`);
+			loadArrayResult.isAllReadingsOk = true;
+		}
+		return loadArrayResult;
+	} catch (err) {
+		// catch an error thrown by LoadArrayInput() and log it.
+		log.error(
+			`${prefix} Error in loadJCReadings for meter ${meter.name} (ID: ${meter.id}): ${err.message}`
+		);
+		// return from this function with an error indicated by isAllReadingsOk
+		return {
+			isAllReadingsOk: false,
+			msgTotal: err.message
+		};
+	}
 }
 
 module.exports = {
-    parseJCMeterData,
-    loadJCReadings
+	parseJCMeterData,
+	loadJCReadings
 };
