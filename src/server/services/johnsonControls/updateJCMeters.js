@@ -48,7 +48,7 @@ function buildDateRangeRequest(
  * Fetches and loads readings for all enabled Johnson Controls (Metasys) meters, then refreshes
  * the daily and hourly reading views if at least one meter loaded successfully.
  * Data comes from the Metasys API, or from the file in JC_FILE when JC_USE_API=false (see getMeterData in readJCData.js).
- * Errors are logged rather than thrown, except when there is no database connection.
+ * Errors are logged rather than thrown.
  * @returns {Promise<Array<{ name: string, isAllReadingsOk: boolean, msgTotal: string }>>}
  *   One result per meter processed. Empty if no meters were found or getting the meters failed.
  *   If an error happens after the meters are processed (for example refreshing the views),
@@ -60,11 +60,6 @@ async function updateJCMeters() {
     // Get the database connection
     const conn = getConnection();
     log.info('Fetching new Johnson Controls meter data');
-
-    // Guard clause safety check
-    if (!conn) {
-        throw new Error('Could not establish database connection');
-    }
 
     try {
         // Retrieve all meters marked as enabled in the database
