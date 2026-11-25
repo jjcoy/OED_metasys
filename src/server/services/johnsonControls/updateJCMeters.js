@@ -67,6 +67,7 @@ async function updateJCMeters() {
 
         // Narrow the list down to only Johnson Controls (Metasys) meter types
         const metersToUpdate = allMeters.filter(m => m.type === Meter.type.METASYS);
+        // TODO Check that the code below behaves as desired if there are no meters to read.
         if (metersToUpdate.length === 0) {
             log.info(`${jcLogPrefix()} No enabled Metasys meters found`);
         }
