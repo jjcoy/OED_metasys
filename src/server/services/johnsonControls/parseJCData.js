@@ -20,8 +20,10 @@ const { jcLogPrefix } = require('./jcCommon.js');
  */
 
 function parseJCMeterData(rawData, meter) {
-    const prefix = jcLogPrefix(meter.name); // set up logging message for this meter
-    const result = {                        // prepare result to store reports
+    // set up logging message for this meter
+    const prefix = jcLogPrefix(meter.name);
+    // prepare result to store reports
+    const result = {
         readings: [],
         warnings: [],
         errors: []
@@ -146,7 +148,8 @@ async function loadJCReadings(meter, rawData, conn) {
             0, // readingGap
             0, // readingLengthVariation
             true, // isEndOnly
-            true, // shouldUpdate
+            // Previous values should not change, so existing readings are not updated (as for Mamac and eGauge).
+            false, // shouldUpdate
             {
                 minVal: meter.minVal,
                 maxVal: meter.maxVal,

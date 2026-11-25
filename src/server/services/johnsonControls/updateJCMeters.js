@@ -50,7 +50,7 @@ async function buildDateRangeRequest(meter) {
  * Fetches and loads readings for all enabled Johnson Controls (Metasys) meters, then refreshes
  * the daily and hourly reading views if at least one meter loaded successfully.
  * Data comes from the Metasys API, or from the file in JC_FILE when JC_USE_API=false (see getMeterData in readJCData.js).
- * Errors are logged rather than thrown, except when there is no database connection.
+ * Errors are logged rather than thrown.
  * @returns {Promise<Array<{ name: string, isAllReadingsOk: boolean, msgTotal: string }>>}
  *   One result per meter processed. Empty if no meters were found or getting the meters failed.
  *   If an error happens after the meters are processed (for example refreshing the views),
@@ -63,19 +63,15 @@ async function updateJCMeters() {
     const conn = getConnection();
     log.info('Fetching new Johnson Controls meter data');
 
-    // Guard clause safety check
-    if (!conn) {
-        throw new Error('Could not establish database connection');
-    }
-
     try {
         // Retrieve all meters marked as enabled in the database
         const allMeters = await Meter.getEnabled(conn);
 
         // Narrow the list down to only Johnson Controls (Metasys) meter types
         const metersToUpdate = allMeters.filter(m => m.type === Meter.type.METASYS);
+        // TODO Check that the code below behaves as desired if there are no meters to read.
         if (metersToUpdate.length === 0) {
-            log.warn(`${jcLogPrefix()} No enabled Metasys meters found`);
+            log.info(`${jcLogPrefix()} No enabled Metasys meters found`);
         }
 
         // Records each meter's outcome (success or failure) in results. readJCData catches its own
@@ -87,11 +83,12 @@ async function updateJCMeters() {
             results.push(await readJCData(meter, meterConn, dateRange));
         };
 
-        // TODO - After further testing and approval by OED, run in parallel again.
+        // TODO Whether meter requests should be made in parallel or in series is being considered for
+        // a future revision of OED. For now, they are made in series (see below).
         // updateMeters uses Promise.all to do all meters at once.
         // await updateMeters(reader, metersToUpdate, conn);
 
-        // TEMP - process the meters one at a time
+        // Process the meters one at a time so the same system is not hit in parallel
         log.info(`${jcLogPrefix()} Getting meter data for ${metersToUpdate.length} meter(s) in sequence`);
         for (const meter of metersToUpdate) {
             log.info(`${jcLogPrefix()} Start getting Metasys meter data for ${meter.name}`);
@@ -100,6 +97,9 @@ async function updateJCMeters() {
         }
         log.info(`${jcLogPrefix()} Update finished`);
 
+        // TODO The upcoming version of OED is fusing the update of readings.
+        // Furthermore, a planned release, maybe after that, is removing the need for the update
+        // of readings. Thus, this will need to be updated later.
         // Only refresh the aggregated daily and hourly readings if something new was loaded
         // TODO See loadJCReadings() on the isAllReadingsOk value returned. Right now only okay to see if
         // should refresh readings as the value was set true when the pipeline returns false when
@@ -107,11 +107,9 @@ async function updateJCMeters() {
         if (results.some(r => r.isAllReadingsOk)) {
             await refreshDailyReadings(conn);
             await refreshHourlyReadings(conn);
-        } else {
-            log.warn(`${jcLogPrefix()} No meters loaded successfully, skipping reading refresh`);
         }
     } catch (err) {
-        log.error(`Error fetching Johnson Controls meter data: ${err}`, err);
+        log.error(`${jcLogPrefix()} Error getting the Metasys meters or refreshing the readings: ${err}`, err);
     }
 
     // Reached whether the try block succeeded or the catch handled an error

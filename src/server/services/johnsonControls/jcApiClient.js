@@ -86,7 +86,7 @@ const jcHttp = rateLimit(axios.create({
 const tokenCache = Object.seal({ token: undefined, expiresAt: 0 });
 
 /**
- * TEMP
+ * TODO
  * Restrict date range during the testing phase
  * @param startTime start time
  * @param endTime end time
@@ -135,7 +135,7 @@ function parseExpires(expires) {
     // convert to the proper format and check validity
     const parsed = moment(expires, moment.ISO_8601, true);
     if (!parsed.isValid()) {
-        return logAndError(`JC expires parsed value is invalid: ${expires}`);
+        return logAndError(`expires parsed value is invalid: ${expires}`);
     }
 
     // return converted expiration time
@@ -175,14 +175,14 @@ async function jcLogin(baseUrl, username, password) {
             headers: { 'Content-Type': 'application/json' }
         }
     ).catch(error => {
-        return logAndError(`JC login failed. Error: ${error}`);
+        return logAndError(`login failed. Error: ${error}`);
     });
 
     // parse and save received response, which should include the token if successful
     const data = response.data;
     const token = data && data.accessToken;
     if (!token) {
-        logAndError(`JC login token was not returned. Data: ${data}`);
+        logAndError('login token was not returned.');
     }
 
     // Metasys returns the expiration value in ISO 8601
@@ -232,7 +232,7 @@ async function getObjectUuid(token, baseUrl, fqr) {
     const response = await jcHttp.get(uri, {
         headers: authHeader(token)
     }).catch(error => {
-        return logAndError(`JC getObjectUuid failed. Error: ${error}`);
+        return logAndError(`getObjectUuid failed. Error: ${error}`);
     });
 
     // parse the response, which should include the uuid as a string
@@ -240,23 +240,25 @@ async function getObjectUuid(token, baseUrl, fqr) {
     if (typeof data === 'string' && data.length > 0) {
         return data;
     } else {
-        return logAndError(`JC getObjectUuid returned no uuid for ${fqr}`);
+        return logAndError(`getObjectUuid returned no uuid for ${fqr}`);
     }
 }
 
 /**
- * Build the Metasys URI for retrieving data for a particular meter given its UUID
+ * Build the Metasys URI for retrieving one page of the data for a particular meter, given its UUID.
+ * The data is limited to the start and end time given. Metasys may need more than one page to
+ * return all the data in that time range, so this is called once per page.
  * @param baseUrl metasys baseurl
  * @param uuid uuid
  * @param startTime start time
  * @param endTime end time
  * @param page page number
- * @returns sample url; throws an error if the page size exceeds the max
+ * @returns the URI to request this page of the meter's samples (readings); throws an error if the page size exceeds the max
  */
 function buildMetasysUri(baseUrl, uuid, startTime, endTime, page) {
     // check that we have not exceeded our page size limits in JC_CONFIG
     if (JC_CONFIG.query.pageSize > JC_CONFIG.maxPageSize) {
-        return logAndError(`JC page size exceeded max page size. Size: ${JC_CONFIG.query.pageSize}`);
+        return logAndError(`page size exceeded max page size. Size: ${JC_CONFIG.query.pageSize}`);
     }
 
     // build the search parameters using the standard JavaScript URLSearchParams class
@@ -286,9 +288,12 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
     const baseUrl = credentials.baseUrl;
     const username = credentials.username;
     const password = credentials.password;
-    const fqr = credentials.fqr;  // this is the meter we want to get this time.
+    // this is the meter we want to get this time
+    const fqr = credentials.fqr;
 
-    // TEMP testing guard, will throw and exit if range exceeds requirements.
+    // TODO testing guard, will throw and exit if range exceeds requirements.
+    // This limit may need to be raised or removed so the first request for a meter with no
+    // readings does not fail.
     restrictDateRange(startTime, endTime);
 
     // record the current time as the start time to measure how long the whole fetch takes
@@ -299,7 +304,6 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
     // or get a new token from the server
     const token = await getJcToken(baseUrl, username, password);
     // we need to then ask Metasys to look up the UUID based on the FQR
-    // TODO: why are we not just also storing the UUID in the database?
     const uuid = await getObjectUuid(token, baseUrl, fqr);
 
     // build the uri for the first request for this meter
@@ -314,14 +318,18 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
         console.log('skipRequest true so not making an actual request');
     }
     let firstBody = null;
-    const allItems = []; // we will collect a multi-page response here
+    // we will collect a multi-page response here
+    const allItems = [];
 
-    // Metasys will send us one page of data at a time, including a URL to use to request
+    // Metasys will send us one page of data at a time, including a URI to use to request
     // additional pages, if any.  Here, we loop over all pages, up to our JC_CONFIG limit.
-    while (uri) { // this will be null when we reach the end
+    // The uri will be null when we reach the end.
+    while (uri) {
         // check we have not exceeded the maximum number of pages in JC_CONFIG
+        // TODO Instead of throwing an error and discarding what was received, consider returning the
+        // readings received so far so OED can process them and make progress on the next request.
         if (page > JC_CONFIG.maxPages) {
-            log.info(allItems);
+            log.info(`Received ${allItems.length} readings in ${page - 1} pages before reaching the max pages limit`);
             return logAndError(`Exceeded max pages of ${JC_CONFIG.maxPages} pages`);
         }
         log.info(`page number request: ${page}`);
@@ -331,22 +339,23 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
         const response = await jcHttp.get(uri, {
             headers: authHeader(token)
         }).catch(error => {
-            return logAndError(`JC fetchJcMeterData failed. Error: ${error}`);
+            return logAndError(`fetchJcMeterData failed. Error: ${error}`);
         });
 
         // parse the response
         const body = response.data;
         // a missing body, or items that are not an array, is an error
         if (!body || !Array.isArray(body.items)) {
-            log.info(`Readings at this point: ${JSON.stringify(allItems)}`);
-            return logAndError('Response has no items in array');
+            log.info(`Received ${allItems.length} readings in ${page - 1} pages before this response`);
+            return logAndError('Response has no body or its items are not an array');
         }
 
         // add this page's items to the collected response so far (allItems)
         allItems.push(...body.items);
         // check to see if we've exceeded our limit in JC_CONFIG, if so, we will stop now
+        // TODO See the TODO on maxPages above. The same idea applies here: consider processing the
+        // readings received instead of discarding them.
         if (allItems.length > JC_CONFIG.maxSamples) {
-            log.info(`Readings at this point: ${JSON.stringify(allItems)}`);
             return logAndError(`Readings have ${allItems.length} values which exceeded the max samples length of ${JC_CONFIG.maxSamples}`);
         }
 
@@ -371,6 +380,8 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
         `JC got ${allItems.length} samples over ${page - 1} pages for fqr ${fqr} in ${logEnd} seconds`
     );
 
+    // TODO A mismatch likely means something is off. OED needs to decide if a warning is enough
+    // or if the readings should be rejected (as OED generally does) or a stronger message given.
     // Warn if the number of samples received does not match the total Metasys reported
     if (firstBody && firstBody.total !== undefined && firstBody.total !== allItems.length) {
         log.warn(`JC expected ${firstBody.total} samples but received ${allItems.length} for fqr ${fqr}`);
@@ -379,7 +390,7 @@ async function fetchJcMeterData(startTime, endTime, credentials) {
     // Return the response as a dictionary with all pages merged into one,
     // including the metadata from the first page response, except for the next: field
     // which is set to null.
-    // Note that the self entry is still the URL of the first request (page=1 and our
+    // Note that the self entry is still the URI of the first request (page=1 and our
     // original, smaller pageSize), so this does not exactly represent a single large page.
     return { ...firstBody, next: null, items: allItems };
 }

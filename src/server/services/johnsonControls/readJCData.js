@@ -9,6 +9,7 @@ const path = require('path');
 const { log } = require('../../log.js');
 const { jcLogPrefix } = require('./jcCommon.js');
 const parseJC = require('./parseJCData.js');
+const jcApi = require('./jcApiClient.js');
 
 /**
  * Get the Metasys connection information from a meter's url in the database:
@@ -84,10 +85,10 @@ async function fetchJCMeterDataFromFile(filePath) {
 
 /**
  * Get data for a meter. Live API by default, file (JC_FILE) only if JC_USE_API=false.
- * @param {Object} meter
- * @param {string} startDate - ISO 8601
- * @param {string} endDate - ISO 8601
- * @returns {Promise<Object>} JC API JSON
+ * @param {Object} meter The OED meter to get readings for. Its url holds the Metasys connection information.
+ * @param {string} startDate Start of the time range to get readings for, in ISO 8601 format
+ * @param {string} endDate End of the time range to get readings for, in ISO 8601 format
+ * @returns {Promise<Object>} The Metasys response as JSON, with the readings in its items array
  */
 async function getMeterData(meter, startDate, endDate) {
     // if testing, read data from a file that is set as JC_FILE when jcTest.js is run
@@ -102,7 +103,6 @@ async function getMeterData(meter, startDate, endDate) {
     }
     // otherwise get data from the live Metasys API
     else {
-        const jcApi = require('./jcApiClient.js');
         log.info(`${jcLogPrefix(meter.name)} Fetching from the Metasys API`);
         console.log('startDate, endDate: ', startDate, endDate);
         // Each meter has its own connection information so each one asks its own server for its own fqr.
@@ -114,8 +114,8 @@ async function getMeterData(meter, startDate, endDate) {
 /**
  * Acquires JC readings for one OED meter and stores them in the database.
  * Errors are caught and returned so the caller can record a per-meter outcome.
- * @param {Object} meter
- * @param {Object} conn
+ * @param {Object} meter The OED meter to get readings for
+ * @param {Object} conn The database connection used to store the readings
  * @param {{ startDate: string, endDate: string }} dateRange ISO 8601 start and end of the readings to get
  * @returns {Promise<{ name: string, isAllReadingsOk: boolean, msgTotal: string }>}
  */
