@@ -352,7 +352,6 @@ class Meter {
 // They should be kept in sync.
 // Enum of meter types
 Meter.type = {
-	JOHNSONCONTROLS: 'johnsoncontrols',
 	EGAUGE: 'egauge',
 	MAMAC: 'mamac',
 	METASYS: 'metasys',
