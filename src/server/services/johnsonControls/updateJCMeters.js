@@ -81,11 +81,12 @@ async function updateJCMeters() {
             results.push(await readJCData(meter, meterConn, dateRange));
         };
 
-        // TODO - After further testing and approval by OED, run in parallel again.
+        // TODO Whether meter requests should be made in parallel or in series is being considered for
+        // a future revision of OED. For now, they are made in series (see below).
         // updateMeters uses Promise.all to do all meters at once.
         // await updateMeters(reader, metersToUpdate, conn);
 
-        // TEMP - process the meters one at a time
+        // Process the meters one at a time so the same system is not hit in parallel
         log.info(`${jcLogPrefix()} Getting meter data for ${metersToUpdate.length} meter(s) in sequence`);
         for (const meter of metersToUpdate) {
             await reader(meter, conn);
